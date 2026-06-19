@@ -1,21 +1,30 @@
 # interview-helper
 
-AI helper that fills job-interview form fields from a global hotkey.
+AI helper that fills form fields from global hotkeys. Each hotkey loads its own
+**profile** — a folder of markdown context — so one codebase serves many
+activities.
 
-**Workflow:** copy a question from any form → press `⌘⌥J` → the answer is
-generated from your context files, placed on the clipboard, and pasted into
-the field that has focus.
+| Hotkey | Profile | Use |
+|---|---|---|
+| `⌘⌥J` | `interview` | Fill job-application / interview fields (blue spinner) |
+| `⌘⌥P` | `parhako` | Write on behalf of the Parhako startup (purple spinner) |
+
+**Workflow:** copy a question from any field → press the hotkey → a spinner
+follows your cursor while GLM thinks → the answer is pasted into the focused
+field (and left on the clipboard).
 
 ## Architecture
 
 ```
-copy question ──▶ [⌘⌥J] ──▶ Hammerspoon runs src/answer.mjs
-                                │
-                                ├─ pbpaste  → read the question
-                                ├─ read context/*.md → your background
-                                ├─ call Z.AI GLM → answer
-                                ├─ pbcopy  → answer now on clipboard ✓
-                                └─ (Hammerspoon) simulate ⌘V → pasted into field ✓
+copy question ──▶ [⌘⌥J / ⌘⌥P] ──▶ Hammerspoon runs: node src/answer.mjs <profile>
+                                       │
+                                       ├─ pbpaste              → the question
+                                       ├─ read contexts/<profile>/*.md
+                                       │     system.md = role + instructions
+                                       │     other *.md = reference context
+                                       ├─ call Z.AI GLM        → answer
+                                       ├─ pbcopy               → on clipboard ✓
+                                       └─ (Hammerspoon) ⌘V     → pasted into field ✓
 ```
 
 No dependencies — uses Node's native `fetch`. Your API key stays local in `.env`.
@@ -29,14 +38,18 @@ cp .env.example .env
 # then edit .env and paste your ZAI_API_KEY
 ```
 
-### 2. Fill in your context
-Edit the files in `context/` — they're the "skill" the AI uses:
-- `about-me.md` — who you are
-- `voice.md` — how the AI should write
-- `experience.md` — your work history, STAR stories, stack
+### 2. Fill in profile context
+Each profile is a directory under `contexts/`. A profile has:
+- `system.md` — the role + instructions (required)
+- any number of other `*.md` files — reference material (loaded alphabetically)
 
-Add as many extra `.md` files as you like; every file in `context/` is loaded.
-Changes take effect on the next hotkey press — no rebuild.
+```
+contexts/
+  interview/   system.md  about-me.md  experience.md  voice.md
+  parhako/     system.md  product.md   brand.md
+```
+
+Edit the markdown freely — changes take effect on the next hotkey press, no rebuild.
 
 ### 3. Install Hammerspoon
 ```sh
@@ -54,25 +67,38 @@ Hammerspoon's config lives at `~/.hammerspoon/init.lua`. Add this one line
 ```lua
 dofile("/Users/farazshah/Programming/interview-helper/hammerspoon/init.lua")
 ```
-Then reload: click the Hammerspoon menu-bar icon → **Reload Config**
-(or press `⌃⌥⌘R`).
+Then reload: click the Hammerspoon menu-bar icon → **Reload Config** (or `⌃⌥⌘R`).
 
-## Test without the hotkey first
-Copy a question, then run:
+## Test without the hotkey
+Copy a question, then run with a profile name:
 ```sh
-npm run answer
+npm run answer           # defaults to "interview"
+node --env-file=.env src/answer.mjs parhako
 ```
-The answer prints to the terminal and is on the clipboard — paste with `⌘V` to
-verify. Once that works, the hotkey will do the paste for you.
+The answer prints to the terminal and is on the clipboard — paste with `⌘V`.
 
 ## Usage
-1. Open any job application form (browser, native app, anything).
+1. Open any form (browser, native app, anything).
 2. Select and copy the question text (`⌘C`).
 3. Click the input field you want filled.
-4. Press `⌘⌥J`. Wait ~2s — the answer appears in the field.
+4. Press `⌘⌥J` (interview) or `⌘⌥P` (parhako). Wait ~2s — the answer appears.
+
+## Add a new profile
+1. `mkdir contexts/<name>` and add a `system.md` (plus any reference `.md`).
+2. Bind a hotkey in `hammerspoon/init.lua`:
+   ```lua
+   hs.hotkey.bind({ "cmd", "alt" }, "x", function() runProfile("<name>", "#10B981") end)
+   ```
+3. Reload Hammerspoon. Done — no other code changes.
 
 ## Customize
-- **Hotkey:** edit `hammerspoon/init.lua` — change `{"cmd","alt"}, "j"`.
-- **Model:** edit `.env` (`ZAI_MODEL`). Try `glm-4-flash` for speed.
-- **Prompt rules:** edit `src/answer.mjs` (the `system` message).
-- **Per-form context:** drop another `.md` in `context/` and delete it when done.
+- **Hotkeys / spinner colors:** `hammerspoon/init.lua` (one `runProfile` call per profile).
+- **Model:** `.env` `ZAI_MODEL`. Recommended `glm-4.5-air` (fast + cheap). Alt `glm-4.6` (best quality). Avoid reasoning defaults — `thinking` is disabled in `answer.mjs` for speed; set `ZAI_THINKING=1` to re-enable per-call.
+- **Prompt rules:** edit the profile's `system.md` (not source code).
+
+## Debug
+Hammerspoon Lua errors don't show in the macOS unified log — always check
+`hammerspoon/run.log` after a hotkey press:
+- No `=== hotkey pressed ===` line → hotkey not bound / key conflict.
+- `exitCode≠0` → node script failed (check `err=`; likely API/key/clipboard).
+- `paste failed:` → Accessibility not effective, or focus lost.

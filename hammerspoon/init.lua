@@ -1,10 +1,15 @@
--- Interview Helper — global hotkey to AI-fill the focused form field.
+ -- Interview Helper — global hotkey to AI-fill the focused form field.
 --
--- Workflow: copy an interview question -> press the hotkey -> a spinner
--- follows your cursor while the AI thinks, then the answer is pasted into
--- whatever field has focus (and left on the clipboard).
+-- Workflow: copy a question -> press a hotkey -> a spinner follows your cursor
+-- while the AI thinks, then the answer is pasted into whatever field has focus
+-- (and left on the clipboard).
 --
--- Bound to: Cmd + Alt + J   (change below)
+-- Profiles: each hotkey runs src/answer.mjs with a profile name, which loads
+-- its own context from contexts/<profile>/. Add a new profile = mkdir + bind.
+--
+-- Bound to:
+--   Cmd + Alt + J   -> "interview" profile  (blue spinner)
+--   Cmd + Alt + P   -> "parhako"   profile  (purple spinner)
 
 local projectDir = "/Users/farazshah/Programming/interview-helper"
 local logPath = projectDir .. "/hammerspoon/run.log"
@@ -91,15 +96,16 @@ if not nodeBin then
 end
 
 -- ---------- Main flow ----------
-local function run()
-  logf("=== hotkey pressed ===")
+-- profile = contexts/<profile> dir to load; color = spinner hex.
+local function runProfile(profile, color)
+  logf("=== hotkey pressed (profile=" .. profile .. ") ===")
   if not nodeBin then
     logf("node not found")
     flashDot("#EF4444")
     return
   end
 
-  startLoader("#3B82F6")  -- blue spinner while GLM thinks
+  startLoader(color)  -- spinner while GLM thinks
 
   local task = hs.task.new(nodeBin, function(exitCode, stdOut, stdErr)
     logf("exitCode=" .. tostring(exitCode) .. " err=" .. (stdErr or ""):sub(1, 120))
@@ -116,11 +122,12 @@ local function run()
         flashDot("#EF4444")
       end
     end)
-  end, { "--env-file=.env", "src/answer.mjs" })
+  end, { "--env-file=.env", "src/answer.mjs", profile })
 
   task:setWorkingDirectory(projectDir)
   task:start()
 end
 
-hs.hotkey.bind({ "cmd", "alt" }, "j", run)
+hs.hotkey.bind({ "cmd", "alt" }, "j", function() runProfile("interview", "#3B82F6") end)  -- blue
+hs.hotkey.bind({ "cmd", "alt" }, "p", function() runProfile("parhako", "#A855F7") end)    -- purple
 logf("LOADED config — node=" .. tostring(nodeBin))

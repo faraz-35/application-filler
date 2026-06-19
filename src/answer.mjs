@@ -1,10 +1,21 @@
 import { execSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectDir = join(__dirname, "..");
+
+// A "profile" is a directory under contexts/<name>/ holding markdown files.
+// system.md = role + instructions; every other *.md = reference context.
+// Usage: node src/answer.mjs [profile]   (default: interview)
+const profile = process.argv[2] || "interview";
+const profileDir = join(projectDir, "contexts", profile);
+
+if (!existsSync(profileDir)) {
+  console.error(`Unknown profile "${profile}". No directory at contexts/${profile}/`);
+  process.exit(1);
+}
 
 const apiKey = process.env.ZAI_API_KEY;
 const model = process.env.ZAI_MODEL || "glm-4.6";
@@ -16,28 +27,36 @@ if (!apiKey) {
   process.exit(1);
 }
 
-// 1. Grab the interview question from the clipboard
+// 1. Grab the question from the clipboard
 const question = execSync("pbpaste", { encoding: "utf8" }).trim();
 if (!question) {
   console.error("Clipboard is empty. Copy the question first, then hit the hotkey.");
   process.exit(1);
 }
 
-// 2. Load every context/*.md file as the candidate's background
-const contextDir = join(projectDir, "context");
-const context = readdirSync(contextDir)
+// 2. Load profile context: system.md (instructions) + every other *.md (reference)
+const mdFiles = readdirSync(profileDir)
   .filter((f) => f.endsWith(".md"))
-  .sort()
+  .sort();
+
+const systemFile = mdFiles.find((f) => f === "system.md");
+if (!systemFile) {
+  console.error(`contexts/${profile}/ is missing system.md (the role/instructions file).`);
+  process.exit(1);
+}
+const systemPrompt = readFileSync(join(profileDir, systemFile), "utf8").trim();
+
+const reference = mdFiles
+  .filter((f) => f !== "system.md")
   .map((f) => {
-    const body = readFileSync(join(contextDir, f), "utf8").trim();
+    const body = readFileSync(join(profileDir, f), "utf8").trim();
     return `## ${f}\n\n${body}`;
   })
   .join("\n\n---\n\n");
 
-// 3. Ask GLM to answer the question using that context
-// Thinking (extended reasoning) is OFF by default: glm-4.6 otherwise burns ~200
-// hidden reasoning tokens per answer, adding 4-5s of latency for form-filling
-// where it rarely helps. Set ZAI_THINKING=1 to re-enable for hard questions.
+// 3. Ask GLM. Common output rules apply to every profile; system.md adds the role.
+// Thinking is OFF: reasoning models otherwise burn 200-700 hidden tokens/answer.
+// Set ZAI_THINKING=1 to re-enable for hard questions.
 const thinking = process.env.ZAI_THINKING === "1"
   ? { type: "enabled" }
   : { type: "disabled" };
@@ -54,17 +73,17 @@ const res = await fetch(`${baseURL}/chat/completions`, {
     messages: [
       {
         role: "system",
-        content: `You are helping a candidate fill out a job application or interview questionnaire.
+        content: `${systemPrompt}
 
-Answer the candidate's question using the context below. Write the answer so it can be pasted straight into the form field:
-- No preamble ("Here is your answer:"), no trailing notes.
-- No surrounding quotes or code fences.
-- Match the tone the question implies (formal for corporate forms, plain for open-ended ones).
-- Be honest and specific. If the context lacks an answer, say so plainly rather than inventing one.
-- Keep it tight — one paragraph or a few bullets, sized to the question.
+---
 
-CANDIDATE CONTEXT:
-${context}`,
+OUTPUT RULES (apply to every answer):
+- Write so the answer can be pasted straight into a single form field.
+- No preamble ("Here is your answer:"), no trailing notes, no surrounding quotes, no code fences.
+- Be honest and specific. If the reference lacks an answer, say so plainly rather than inventing one.
+- Keep it tight — sized to the question.
+
+${reference ? `REFERENCE CONTEXT:\n${reference}` : ""}`,
       },
       { role: "user", content: question },
     ],
