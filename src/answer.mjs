@@ -35,6 +35,13 @@ const context = readdirSync(contextDir)
   .join("\n\n---\n\n");
 
 // 3. Ask GLM to answer the question using that context
+// Thinking (extended reasoning) is OFF by default: glm-4.6 otherwise burns ~200
+// hidden reasoning tokens per answer, adding 4-5s of latency for form-filling
+// where it rarely helps. Set ZAI_THINKING=1 to re-enable for hard questions.
+const thinking = process.env.ZAI_THINKING === "1"
+  ? { type: "enabled" }
+  : { type: "disabled" };
+
 const res = await fetch(`${baseURL}/chat/completions`, {
   method: "POST",
   headers: {
@@ -43,6 +50,7 @@ const res = await fetch(`${baseURL}/chat/completions`, {
   },
   body: JSON.stringify({
     model,
+    thinking,
     messages: [
       {
         role: "system",
