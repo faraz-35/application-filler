@@ -1,0 +1,10 @@
+{
+  "name": "interview-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI helper that fills job interview form fields from a global hotkey.",
+  "scripts": {
+    "answer": "node --env-file=.env src/answer.mjs"
+  }
+}
