@@ -20,7 +20,7 @@ if (!existsSync(profileDir)) {
 const apiKey = process.env.ZAI_API_KEY;
 const model = process.env.ZAI_MODEL || "glm-4.6";
 const baseURL =
-  process.env.ZAI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4";
+  process.env.ZAI_BASE_URL || "https://api.z.ai/api/paas/v4";
 
 if (!apiKey) {
   console.error("Missing ZAI_API_KEY. Copy .env.example to .env and fill it in.");
