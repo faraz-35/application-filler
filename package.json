@@ -5,6 +5,7 @@
   "type": "module",
   "description": "AI helper that fills job interview form fields from a global hotkey.",
   "scripts": {
-    "answer": "node --env-file=.env src/answer.mjs"
+    "answer": "node --env-file=.env src/answer.mjs",
+    "server": "node --env-file=.env src/server.mjs"
   }
 }

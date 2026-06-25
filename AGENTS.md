@@ -28,16 +28,24 @@ copy question ─▶ [hotkey] ─▶ Hammerspoon runs: node src/answer.mjs <prof
                                    └─ Hammerspoon ⌘V   → pasted into focused field
 ```
 
-Two moving parts, cleanly separated:
-- `src/answer.mjs` — pure Node, no deps. Reads clipboard, loads profile context,
-  calls the model, writes answer to clipboard.
+The brain lives in one place; everything else is a thin adapter over it:
+- `src/core.mjs` — the engine (no deps). Exposes `answer(question, { profile, hint, jd })`:
+  loads the profile, builds the prompt, calls GLM, returns the answer string. Throws
+  typed errors (`ConfigError` / `InputError` / `ApiError`) so callers can map them.
+- `src/answer.mjs` — CLI/clipboard adapter over `answer()`. Reads `pbpaste`, writes
+  `pbcopy`. This is what the Hammerspoon hotkey runs.
+- `src/server.mjs` — local HTTP adapter over `answer()`, bound to `127.0.0.1` only.
+  Exposes `POST /answer` + `GET /health` for the browser extension (keeps the API key
+  out of the browser).
 - `hammerspoon/init.lua` — binds hotkeys, draws the spinner, spawns node, then
   simulates the paste. Wires profiles to hotkey+color via `runProfile(name, color)`.
 
 ## Layout
 
 ```
-src/answer.mjs            the engine (profile arg → clipboard answer)
+src/core.mjs              the engine: answer(question,{profile,hint,jd}) — profile, prompt, GLM call
+src/answer.mjs            CLI/clipboard adapter over core (pbpaste → answer → pbcopy)
+src/server.mjs            local HTTP adapter over core (127.0.0.1 only) for the browser extension
 hammerspoon/init.lua       hotkey bindings + spinner + paste (dofile'd from ~/.hammerspoon/init.lua)
 hammerspoon/run.log        runtime log (gitignored) — PRIMARY DEBUG OUTPUT
 contexts/<profile>/        one folder per profile: system.md + any *.md reference
@@ -54,9 +62,12 @@ contexts/<profile>/        one folder per profile: system.md + any *.md referenc
   add `system.md` (+ optional reference `*.md`), bind a hotkey in
   `hammerspoon/init.lua`. No source changes needed.
 - **System prompt is split:** the profile's `system.md` defines the role/voice;
-  `answer.mjs` appends hardcoded OUTPUT RULES (paste-ready, no preamble, no
+  `core.mjs` appends hardcoded OUTPUT RULES (paste-ready, no preamble, no
   quotes/fences, honest if reference lacks the answer). Keep prompt/content
   edits in the markdown, not in the source.
+- **The brain is one function:** all logic flows through `answer()` in `core.mjs`.
+  `hint` steers answer style per-call; `jd` grounds the answer in a specific job
+  description per-application. Both are optional and only augment the prompt.
 - **Thinking is OFF by default** for speed (avoids 200-700 hidden tokens/call).
   `ZAI_THINKING=1` re-enables. Preserve this default.
 - **Output must be paste-ready into a single field** — that invariant is the
@@ -68,6 +79,7 @@ contexts/<profile>/        one folder per profile: system.md + any *.md referenc
 ```sh
 npm run answer                          # run interview profile, reads clipboard
 node --env-file=.env src/answer.mjs parhako   # run a specific profile
+npm run server                          # local helper on http://127.0.0.1:7437 (HELPER_PORT to override)
 ```
 
 There is **no linter, typecheck, or test suite** configured. Verify changes by:
@@ -83,7 +95,8 @@ There is **no linter, typecheck, or test suite** configured. Verify changes by:
 | Hotkeys / spinner colors | `hammerspoon/init.lua` (one `runProfile` call per profile) |
 | Model / endpoint / key | `.env` (`ZAI_MODEL`, `ZAI_BASE_URL`, `ZAI_API_KEY`) |
 | Prompt voice/rules for a profile | that profile's `system.md` |
-| Global output rules | `src/answer.mjs` OUTPUT RULES block |
+| Global output rules | `src/core.mjs` `OUTPUT_RULES` constant |
+| Server port | `HELPER_PORT` env (default `7437`) |
 
 ## Debug
 
