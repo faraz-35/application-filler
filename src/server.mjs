@@ -13,7 +13,7 @@
 // Override port with HELPER_PORT (default 7437).
 
 import http from "node:http";
-import { answer, ConfigError, InputError, ApiError } from "./core.mjs";
+import { answer, listProfiles, ConfigError, InputError, ApiError } from "./core.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.HELPER_PORT) || 7437;
@@ -62,6 +62,10 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true });
   }
 
+  if (req.method === "GET" && pathname === "/profiles") {
+    return send(res, 200, { profiles: listProfiles() });
+  }
+
   if (req.method === "POST" && pathname === "/answer") {
     let body;
     try {
@@ -87,6 +91,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`interview-helper server on http://${HOST}:${PORT}`);
-  console.log("  POST /answer  { question, profile?, hint?, jd? }");
+  console.log(`  POST /answer  { question, profile?, hint?, jd? }`);
   console.log("  GET  /health");
+  console.log("  GET  /profiles");
 });

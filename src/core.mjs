@@ -69,6 +69,16 @@ export function loadProfile(profile) {
   return { systemPrompt, reference };
 }
 
+// List available profile names (directories under contexts/), sorted. The popup
+// uses this to populate the profile dropdown.
+export function listProfiles() {
+  if (!existsSync(contextsDir)) return [];
+  return readdirSync(contextsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+}
+
 // Constant output rules applied to every answer. Keep this paste-ready invariant
 // intact — it is the whole product.
 const OUTPUT_RULES = `OUTPUT RULES (apply to every answer):

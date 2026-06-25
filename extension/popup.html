@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <span class="logo"></span>
+    <h1>Interview Helper</h1>
+    <span id="status" class="status checking">…</span>
+  </header>
+
+  <section>
+    <label for="profile">Profile</label>
+    <select id="profile"></select>
+  </section>
+
+  <section>
+    <label for="jd">Job description <span class="opt">grounds every answer this session</span></label>
+    <textarea id="jd" rows="9" spellcheck="false"
+              placeholder="Paste the job description for the role you're applying to…"></textarea>
+    <div class="actions">
+      <button id="save" class="primary">Save</button>
+      <button id="clear">Clear</button>
+      <span id="saved" class="saved"></span>
+    </div>
+  </section>
+
+  <footer>
+    <div class="line">Helper: <code id="url"></code></div>
+    <div class="line">Shortcut: <kbd>Ctrl+Shift+Y</kbd> on a field <a id="shortcuts" href="#">(change)</a></div>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -8,6 +8,7 @@ activities.
 |---|---|---|
 | `⌘⌥J` | `interview` | Fill job-application / interview fields (blue spinner) |
 | `⌘⌥P` | `parhako` | Write on behalf of the Parhako startup (purple spinner) |
+| `Ctrl+Shift+Y` | (any) | Browser extension: answer one field inline, no clipboard/focus dance |
 
 **Workflow:** copy a question from any field → press the hotkey → a spinner
 follows your cursor while GLM thinks → the answer is pasted into the focused
@@ -83,17 +84,43 @@ The answer prints to the terminal and is on the clipboard — paste with `⌘V`.
 3. Click the input field you want filled.
 4. Press `⌘⌥J` (interview) or `⌘⌥P` (parhako). Wait ~2s — the answer appears.
 
+## Browser extension (Firefox)
+
+For answering questions inside browser forms without the clipboard/focus dance:
+focus a field, press `Ctrl+Shift+Y`, edit the auto-extracted question + an optional
+hint, generate — the answer is written straight into the field (no copy, no `⌘V`).
+Grounded in the **job description** you paste into the toolbar.
+
+The extension talks to the local brain, so keep this running while you use it:
+```sh
+npm run server
+```
+
+**Load:** `about:debugging#/runtime/this-firefox` → *This Firefox* → *Load Temporary
+Add-on* → pick `extension/manifest.json`.
+
+**Use:**
+1. Click a form field.
+2. `Ctrl+Shift+Y` → the card opens under it.
+3. Question is auto-filled (editable); add an optional hint, then Generate
+   (or Ctrl/⌘+Enter). Regenerate retries, Esc closes.
+4. Toolbar icon → pick the **profile** and paste the **job description** (saved,
+   attached to every answer until changed).
+
+**Change the shortcut:** `about:addons` → gear → *Manage Extension Shortcuts*.
+
 ## Add a new profile
 1. `mkdir contexts/<name>` and add a `system.md` (plus any reference `.md`).
 2. Bind a hotkey in `hammerspoon/init.lua`:
    ```lua
    hs.hotkey.bind({ "cmd", "alt" }, "x", function() runProfile("<name>", "#10B981") end)
    ```
-3. Reload Hammerspoon. Done — no other code changes.
+3. Reload Hammerspoon. Done — no other code changes. (The extension picks up new
+   profiles automatically via `GET /profiles`.)
 
 ## Customize
 - **Hotkeys / spinner colors:** `hammerspoon/init.lua` (one `runProfile` call per profile).
-- **Model:** `.env` `ZAI_MODEL`. Recommended `glm-4.5-air` (fast + cheap). Alt `glm-4.6` (best quality). Avoid reasoning defaults — `thinking` is disabled in `answer.mjs` for speed; set `ZAI_THINKING=1` to re-enable per-call.
+- **Model:** `.env` `ZAI_MODEL`. Recommended `glm-4.5-air` (fast + cheap). Alt `glm-4.6` (best quality). Avoid reasoning defaults — `thinking` is disabled in `src/core.mjs` for speed; set `ZAI_THINKING=1` to re-enable per-call.
 - **Prompt rules:** edit the profile's `system.md` (not source code).
 
 ## Debug

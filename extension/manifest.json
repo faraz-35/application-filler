@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Interview Helper",
+  "version": "0.1.0",
+  "description": "AI-answer the focused job-form field, grounded in your profile and the job description. Talks to your local interview-helper server (127.0.0.1:7437).",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "interview-helper@local",
+      "strict_min_version": "115.0"
+    }
+  },
+
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
+
+  "permissions": ["storage"],
+
+  "host_permissions": [
+    "http://127.0.0.1:7437/*",
+    "<all_urls>"
+  ],
+
+  "background": {
+    "scripts": ["background.js"]
+  },
+
+  "action": {
+    "default_title": "Interview Helper",
+    "default_popup": "popup.html",
+    "default_icon": "icons/icon.svg"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "commands": {
+    "open-answer-card": {
+      "suggested_key": { "default": "Ctrl+Shift+Y" },
+      "description": "Open the AI answer card on the focused field"
+    }
+  }
+}

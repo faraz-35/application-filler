@@ -35,8 +35,12 @@ The brain lives in one place; everything else is a thin adapter over it:
 - `src/answer.mjs` — CLI/clipboard adapter over `answer()`. Reads `pbpaste`, writes
   `pbcopy`. This is what the Hammerspoon hotkey runs.
 - `src/server.mjs` — local HTTP adapter over `answer()`, bound to `127.0.0.1` only.
-  Exposes `POST /answer` + `GET /health` for the browser extension (keeps the API key
-  out of the browser).
+  Exposes `POST /answer`, `GET /health`, `GET /profiles` for the browser extension
+  (keeps the API key out of the browser).
+- `extension/` — Firefox MV3 extension. A thin UI over the brain: detects the
+  focused field, shows an inline card (editable question + optional hint), calls
+  the local server, and writes the answer back via the DOM — no clipboard, no
+  focus dependency. See "Browser extension" below.
 - `hammerspoon/init.lua` — binds hotkeys, draws the spinner, spawns node, then
   simulates the paste. Wires profiles to hotkey+color via `runProfile(name, color)`.
 
@@ -49,6 +53,10 @@ src/server.mjs            local HTTP adapter over core (127.0.0.1 only) for the 
 hammerspoon/init.lua       hotkey bindings + spinner + paste (dofile'd from ~/.hammerspoon/init.lua)
 hammerspoon/run.log        runtime log (gitignored) — PRIMARY DEBUG OUTPUT
 contexts/<profile>/        one folder per profile: system.md + any *.md reference
+extension/manifest.json    Firefox MV3 manifest (commands, host perms, content scripts)
+extension/background.js    command → message active tab
+extension/content.js       field detect, question extract, DOM write-back, inline card (Shadow DOM)
+extension/popup.html|js|css toolbar: server status, profile select, JD paste+persist
 .env                       ZAI_API_KEY, ZAI_MODEL, ZAI_BASE_URL (gitignored)
 .env.example               template
 ```
@@ -85,7 +93,38 @@ npm run server                          # local helper on http://127.0.0.1:7437 
 There is **no linter, typecheck, or test suite** configured. Verify changes by:
 1. Running `npm run answer` with a question on the clipboard — expect a clean
    answer on stdout and the clipboard.
-2. After hotkey changes, reload Hammerspoon and check `hammerspoon/run.log`.
+2. `npm run server`, then `curl http://127.0.0.1:7437/health` (→ `{"ok":true}`) and
+   `/profiles` (→ `{"profiles":[...]}`). Server logs errors to its console.
+3. After hotkey changes, reload Hammerspoon and check `hammerspoon/run.log`.
+
+## Browser extension (Firefox)
+
+A thin UI over the brain. Use it instead of the hotkey when answering questions in
+a browser form: focus the field, press `Ctrl+Shift+Y`, edit the auto-extracted
+question + optional hint, generate — the answer is written into the field directly
+(no clipboard, no focus juggling). It must talk to the local server, so:
+
+```sh
+npm run server          # keep this running while using the extension
+```
+
+**Load (temporary):** `about:debugging#/runtime/this-firefox` → *This Firefox* →
+*Load Temporary Add-on* → pick `extension/manifest.json`.
+
+**Use:**
+1. Click a job-application form field (textarea/input/contenteditable).
+2. `Ctrl+Shift+Y` → the inline card opens under it.
+3. The question is auto-extracted (label/placeholder/aria) and editable; type an
+   optional hint, then Generate (or Ctrl/⌘+Enter). Answer is inserted; Regenerate
+   to retry. Esc closes.
+4. Click the toolbar icon to set the **profile** and paste the **job description**
+   (persisted in `storage.local`, attached to every answer until changed).
+
+**Rebind the shortcut:** `about:addons` → gear → *Manage Extension Shortcuts*.
+
+**Field write-back note:** `content.js` uses the native `value` setter + dispatches
+`input`/`change`/`blur` so React/Vue (Greenhouse, Lever) register the value. If a
+site doesn't, the framework-specific event is the place to look.
 
 ## Editing guide
 
@@ -97,6 +136,8 @@ There is **no linter, typecheck, or test suite** configured. Verify changes by:
 | Prompt voice/rules for a profile | that profile's `system.md` |
 | Global output rules | `src/core.mjs` `OUTPUT_RULES` constant |
 | Server port | `HELPER_PORT` env (default `7437`) |
+| Extension shortcut | `extension/manifest.json` `commands` → reload in `about:debugging` |
+| Extension card UI / field detection | `extension/content.js` |
 
 ## Debug
 
