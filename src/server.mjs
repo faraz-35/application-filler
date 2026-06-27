@@ -13,10 +13,27 @@
 // Override port with HELPER_PORT (default 7437).
 
 import http from "node:http";
+import { appendFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { answer, listProfiles, ConfigError, InputError, ApiError } from "./core.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.HELPER_PORT) || 7437;
+
+// Persistent request log so request details are inspectable after the fact — the
+// console output only lives in the terminal that launched the server, which isn't
+// reachable otherwise. (Gitignored.)
+const requestLogPath = join(dirname(fileURLToPath(import.meta.url)), "..", "server.log");
+function logLine(line) {
+  const entry = `[${new Date().toISOString()}] ${line}\n`;
+  process.stdout.write(entry);
+  try {
+    appendFileSync(requestLogPath, entry);
+  } catch {
+    /* best effort — don't let logging break a request */
+  }
+}
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -75,13 +92,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     const { question, profile, hint, jd } = body;
+    // Log which fields arrived and how big (not their contents) — this is how to
+    // confirm the extension is sending hint/jd with each request. Goes to stdout
+    // and server.log (inspectable after the fact).
+    logLine(
+      `POST /answer profile=${profile || "interview"} ` +
+        `q=${question?.length || 0}c hint=${hint?.length || 0}c jd=${jd?.length || 0}c`
+    );
     try {
       const result = await answer(question, { profile, hint, jd });
       return send(res, 200, { answer: result });
     } catch (err) {
       const status = statusFor(err);
-      // Log status + message only — never the question/answer (privacy, length).
-      console.error(`[${new Date().toISOString()}] POST /answer -> ${status} ${err.message}`);
+      logLine(`POST /answer -> ${status} ${err.message}`);
       return send(res, status, { error: err.message });
     }
   }
