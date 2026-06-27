@@ -12,8 +12,6 @@
   if (window.__ihInjected) return;
   window.__ihInjected = true;
 
-  const SERVER = "http://127.0.0.1:7437";
-
   // The last field the user focused, so the card can safely steal focus for its
   // inputs without losing track of where the answer should go.
   let lastEditable = null;
@@ -128,27 +126,21 @@
     el.dispatchEvent(new Event("blur", { bubbles: true }));
   }
 
-  /* ---------------- the brain call ---------------- */
+  /* ---------------- the brain call (via the background script) ---------------- */
+  // Fetching through the background avoids the page's CSP, which would otherwise
+  // block a content-script fetch to 127.0.0.1 with a NetworkError.
   async function fetchAnswer(question, hint) {
     const { profile, jd } = await getSettings();
-    const res = await fetch(`${SERVER}/answer`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, hint, jd, profile }),
+    const res = await browser.runtime.sendMessage({
+      type: "ANSWER",
+      question,
+      hint,
+      jd,
+      profile,
     });
-    let data = {};
-    try {
-      data = await res.json();
-    } catch {
-      /* non-JSON response handled below */
-    }
-    if (!res.ok) {
-      throw new Error(
-        data.error || `Helper error (HTTP ${res.status}). Is "npm run server" running?`
-      );
-    }
-    if (!data.answer) throw new Error("The helper returned no answer.");
-    return data.answer;
+    if (res?.error) throw new Error(res.error);
+    if (!res?.answer) throw new Error("The helper returned no answer.");
+    return res.answer;
   }
 
   /* ---------------- toast ---------------- */

@@ -38,9 +38,9 @@ The brain lives in one place; everything else is a thin adapter over it:
   Exposes `POST /answer`, `GET /health`, `GET /profiles` for the browser extension
   (keeps the API key out of the browser).
 - `extension/` — Firefox MV3 extension. A thin UI over the brain: detects the
-  focused field, shows an inline card (editable question + optional hint), calls
-  the local server, and writes the answer back via the DOM — no clipboard, no
-  focus dependency. See "Browser extension" below.
+  focused field, shows an inline card (editable question + optional hint), asks
+  the background to call the local server, and writes the answer back via the DOM
+  — no clipboard, no focus dependency. See "Browser extension" below.
 - `hammerspoon/init.lua` — binds hotkeys, draws the spinner, spawns node, then
   simulates the paste. Wires profiles to hotkey+color via `runProfile(name, color)`.
 
@@ -54,7 +54,7 @@ hammerspoon/init.lua       hotkey bindings + spinner + paste (dofile'd from ~/.h
 hammerspoon/run.log        runtime log (gitignored) — PRIMARY DEBUG OUTPUT
 contexts/<profile>/        one folder per profile: system.md + any *.md reference
 extension/manifest.json    Firefox MV3 manifest (commands, host perms, content scripts)
-extension/background.js    command → message active tab
+extension/background.js    command → open card; proxies fetches to the server (a content-script fetch would be blocked by the page's CSP)
 extension/content.js       field detect, question extract, DOM write-back, inline card (Shadow DOM)
 extension/popup.html|js|css toolbar: server status, profile select, JD paste+persist
 .env                       ZAI_API_KEY, ZAI_MODEL, ZAI_BASE_URL (gitignored)
