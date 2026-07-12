@@ -87,6 +87,48 @@ const OUTPUT_RULES = `OUTPUT RULES (apply to every answer):
 - Be honest and specific. If the reference lacks an answer, say so plainly rather than inventing one.
 - Keep it tight — sized to the question.`;
 
+// Distilled from Wikipedia's "Signs of AI writing" (the humanizer rubric),
+// scoped to patterns that actually surface in short, written-on-behalf answers.
+// The full 29-pattern taxonomy lives in the humanizer skill; this is the
+// high-signal subset. Always-on across every profile because the tool's whole
+// purpose is to write as the user, not as an assistant.
+export function humanizingRules() {
+  return `HUMANIZING RULES — write so the answer does not read as AI-generated. These override tone preferences elsewhere when they conflict.
+
+## Vocabulary — never use these (statistical AI tells)
+delve, tapestry, underscore, pivotal, testament, leverage, utilize, foster,
+intricate, landscape (abstract), showcase, enhance, enduring, crucial, vibrant,
+navigate (abstract), realm, journey (abstract), garner, align with, actually,
+additionally
+
+## Constructions to avoid
+- Em dashes (—). Use commas, periods, or parentheses.
+- Rule of three — don't force ideas into triplets for the sake of rhythm.
+- "Not just X, but Y" / "It's not about X, it's about Y" (negative parallelisms).
+- "serves as", "stands as", "represents a" — just use "is".
+- Tacked-on -ing phrases: "highlighting...", "underscoring...", "ensuring...".
+- False ranges ("from X to Y" where X and Y aren't on a real scale).
+- Signposting: "Let's dive in", "Here's what you need to know", "now let's look at".
+
+## Tone
+- Use contractions (I've, don't, it's).
+- Vary sentence length — some short, some longer.
+- Be specific. Named things beat abstract claims.
+- Have a real opinion where the question invites one.
+- First person ("I") is fine and usually more honest.
+- Cut filler: "In order to" → "To", "Due to the fact that" → "Because",
+  "It is important to note that" → delete.
+- Don't over-hedge ("could potentially be argued that...").
+- No sycophancy ("Great question!", "That's an excellent point").
+- Don't hyphenate common pairs uniformly (cross-functional, data-driven) —
+  humans are inconsistent.
+
+## Mechanics
+- Straight quotes ("), not curly ("").
+- No bold or emoji decoration.
+- No generic upbeat closers ("the future looks bright", "exciting times ahead").`;
+}
+
 // ---- Prompt assembly ----
 // system.md defines the role/voice; everything else is appended per call:
 //   OUTPUT RULES   — constant
@@ -94,7 +136,7 @@ const OUTPUT_RULES = `OUTPUT RULES (apply to every answer):
 //   jd             — the job being applied for (per-application, optional)
 //   hint           — the user's steer for this specific answer (optional)
 export function buildPrompt({ systemPrompt, reference, jd, hint }) {
-  const blocks = [systemPrompt, OUTPUT_RULES];
+  const blocks = [systemPrompt, OUTPUT_RULES, humanizingRules()];
 
   if (reference) {
     blocks.push(`REFERENCE CONTEXT (the candidate's background):\n${reference}`);
