@@ -10,7 +10,7 @@
 //
 // Run:  npm run server
 //       node --env-file=.env src/server.mjs
-// Override port with HELPER_PORT (default 7437).
+// Override port with HELPER_PORT (default 8775).
 
 import http from "node:http";
 import { appendFileSync } from "node:fs";
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { answer, listProfiles, ConfigError, InputError, ApiError } from "./core.mjs";
 
 const HOST = "127.0.0.1";
-const PORT = Number(process.env.HELPER_PORT) || 7437;
+const PORT = Number(process.env.HELPER_PORT) || 8775;
 
 // Persistent request log so request details are inspectable after the fact — the
 // console output only lives in the terminal that launched the server, which isn't

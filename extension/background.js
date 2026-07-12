@@ -8,7 +8,7 @@
 // fetch runs in the extension's own context with full host permissions, so it just
 // works.
 
-const SERVER = "http://127.0.0.1:7437";
+const SERVER = "http://127.0.0.1:8775";
 
 // Fetch the brain for a content script. Always resolves to { answer } or { error }
 // (never rejects) so the caller doesn't have to parse serialized exceptions.

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Interview Helper",
   "version": "0.1.0",
-  "description": "AI-answer the focused job-form field, grounded in your profile and the job description. Talks to your local interview-helper server (127.0.0.1:7437).",
+  "description": "AI-answer the focused job-form field, grounded in your profile and the job description. Talks to your local interview-helper server (127.0.0.1:8775).",
 
   "browser_specific_settings": {
     "gecko": {
@@ -19,7 +19,7 @@
   "permissions": ["storage"],
 
   "host_permissions": [
-    "http://127.0.0.1:7437/*",
+    "http://127.0.0.1:8775/*",
     "<all_urls>"
   ],
 

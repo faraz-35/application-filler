@@ -1,7 +1,7 @@
 // Popup: server health, profile selection, and JD persistence. The content script
 // reads profile + jd from storage on each generate, so saving here is all it takes.
 
-const SERVER = "http://127.0.0.1:7437";
+const SERVER = "http://127.0.0.1:8775";
 const $ = (id) => document.getElementById(id);
 
 function setStatus(text, kind) {

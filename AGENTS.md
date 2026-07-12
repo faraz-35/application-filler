@@ -87,13 +87,13 @@ extension/popup.html|js|css toolbar: server status, profile select, JD paste+per
 ```sh
 npm run answer                          # run interview profile, reads clipboard
 node --env-file=.env src/answer.mjs parhako   # run a specific profile
-npm run server                          # local helper on http://127.0.0.1:7437 (HELPER_PORT to override)
+npm run server                          # local helper on http://127.0.0.1:8775 (HELPER_PORT to override)
 ```
 
 There is **no linter, typecheck, or test suite** configured. Verify changes by:
 1. Running `npm run answer` with a question on the clipboard — expect a clean
    answer on stdout and the clipboard.
-2. `npm run server`, then `curl http://127.0.0.1:7437/health` (→ `{"ok":true}`) and
+2. `npm run server`, then `curl http://127.0.0.1:8775/health` (→ `{"ok":true}`) and
    `/profiles` (→ `{"profiles":[...]}`). Server logs errors to its console.
 3. After hotkey changes, reload Hammerspoon and check `hammerspoon/run.log`.
 
@@ -135,7 +135,7 @@ site doesn't, the framework-specific event is the place to look.
 | Model / endpoint / key | `.env` (`ZAI_MODEL`, `ZAI_BASE_URL`, `ZAI_API_KEY`) |
 | Prompt voice/rules for a profile | that profile's `system.md` |
 | Global output rules | `src/core.mjs` `OUTPUT_RULES` constant |
-| Server port | `HELPER_PORT` env (default `7437`) |
+| Server port | `HELPER_PORT` env (default `8775`) |
 | Extension shortcut | `extension/manifest.json` `commands` → reload in `about:debugging` |
 | Extension card UI / field detection | `extension/content.js` |
 
