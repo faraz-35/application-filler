@@ -17,6 +17,12 @@
   let lastEditable = null;
   let active = null; // { close() } for the currently-open card, if any
 
+  // The batch queue: each entry is { id, element, question, hint }.
+  // `element` is a live DOM ref so we can write the answer back later; it's
+  // never serialized. The batch lives in memory for the form session.
+  let batch = [];
+  let idCounter = 0;
+
   /* ---------------- settings ---------------- */
   async function getSettings() {
     const { profile = "interview", jd = "" } = await browser.storage.local.get([
@@ -129,6 +135,8 @@
   /* ---------------- the brain call (via the background script) ---------------- */
   // Fetching through the background avoids the page's CSP, which would otherwise
   // block a content-script fetch to 127.0.0.1 with a NetworkError.
+
+  // Single-field fetch (used by /answer). Kept for the single-field path.
   async function fetchAnswer(question, hint) {
     const { profile, jd } = await getSettings();
     const res = await browser.runtime.sendMessage({
@@ -141,6 +149,51 @@
     if (res?.error) throw new Error(res.error);
     if (!res?.answer) throw new Error("The helper returned no answer.");
     return res.answer;
+  }
+
+  // Batch fetch using polling: POST kicks off the job and returns a jobId
+  // instantly, then we poll GET until the status is "done" or "error". Each
+  // poll is a short request, so Firefox's MV3 background page never suspends
+  // mid-run (the bug that orphaned long single-request batches).
+  // onPoll(status) is called on every poll so the UI can update.
+  async function fetchAnswers(items, { onPoll } = {}) {
+    const { jd } = await getSettings();
+
+    // 1. Start the job (instant response — just writes the file).
+    const start = await browser.runtime.sendMessage({
+      type: "ANSWER_BATCH_START",
+      items,
+      jd,
+    });
+    if (start?.error) throw new Error(start.error);
+    if (!start?.jobId) throw new Error("The helper returned no job id.");
+    const { jobId } = start;
+
+    // 2. Poll until terminal. Short requests keep the background page alive.
+    const startedAt = Date.now();
+    const POLL_MS = 3000;
+    const MAX_MS = 600000; // 10 min ceiling — same as the server-side opencode timeout
+    let lastStatus = "pending";
+    while (true) {
+      if (Date.now() - startedAt > MAX_MS) {
+        throw new Error("Timed out waiting for the agent (over 10 minutes).");
+      }
+      const res = await browser.runtime.sendMessage({
+        type: "ANSWER_BATCH_POLL",
+        jobId,
+      });
+      if (res?.error) throw new Error(res.error);
+      lastStatus = res?.status || "pending";
+      if (onPoll) onPoll(lastStatus);
+      if (lastStatus === "done") {
+        if (!Array.isArray(res?.answers)) throw new Error("The helper returned no answers.");
+        return res.answers;
+      }
+      if (lastStatus === "error") {
+        throw new Error(res?.error || "The agent failed.");
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
   }
 
   /* ---------------- toast ---------------- */
@@ -192,9 +245,16 @@
     .status.ok { color: #047857; }
     .status.load { color: #2563eb; }
     .hint { font-size: 10px; color: #9ca3af; margin-top: 8px; }
+    .batch-bar { display: none; align-items: center; gap: 8px; margin-top: 8px;
+                 padding-top: 8px; border-top: 1px solid #e5e7eb;
+                 font-size: 12px; color: #6b7280; }
+    .batch-bar.show { display: flex; }
+    .batch-bar a { color: #2563eb; font-weight: 600; cursor: pointer;
+                   text-decoration: none; white-space: nowrap; }
+    .batch-bar a:hover { text-decoration: underline; }
   `;
 
-  function buildCard({ anchor, question, onGenerate }) {
+  function buildCard({ anchor, question }) {
     const host = document.createElement("div");
     host.className = "ih-card";
     host.style.cssText = "all: initial;";
@@ -214,10 +274,15 @@
           <input id="ih-h" type="text" spellcheck="false"
                  placeholder="e.g. concise · emphasize leadership · 2 sentences" />
           <div class="row">
-            <button class="gen">Generate</button>
+            <button class="gen">Add to batch</button>
             <span class="status"></span>
           </div>
-          <div class="hint">Ctrl/⌘+Enter generates · Esc closes</div>
+          <div class="batch-bar">
+            <span class="batch-count">0 in batch</span>
+            <span class="spacer" style="flex:1"></span>
+            <a class="gen-all" title="Run the agent over every queued field">Generate all</a>
+          </div>
+          <div class="hint">Ctrl/⌘+Enter adds to batch · Esc closes</div>
         </div>
       </div>`;
     document.body.appendChild(host);
@@ -227,6 +292,9 @@
     const hEl = $("input");
     const btn = $("button.gen");
     const statusEl = $(".status");
+    const batchBar = $(".batch-bar");
+    const batchCountEl = $(".batch-count");
+    const genAllLink = $(".gen-all");
     qEl.value = question || "";
 
     let busy = false;
@@ -234,9 +302,20 @@
       statusEl.textContent = text || "";
       statusEl.className = "status" + (kind ? " " + kind : "");
     };
-    const truncate = (s, n = 70) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
-    async function generate() {
+    // Reflect the current batch size in the footer. The bar shows once ≥1 field
+    // is queued; the count and the "Generate all (N)" label stay in sync.
+    function refreshBatch() {
+      const n = batch.length;
+      batchCountEl.textContent = `${n} in batch`;
+      genAllLink.textContent = n ? `Generate all (${n})` : "Generate all";
+      batchBar.classList.toggle("show", n > 0);
+    }
+    refreshBatch();
+
+    // Add the current field to the batch, then close the card. The user walks
+    // field-by-field: focus next field, reopen, add again.
+    function addToBatch() {
       if (busy) return;
       const q = qEl.value.trim();
       if (!q) {
@@ -244,35 +323,33 @@
         qEl.focus();
         return;
       }
-      busy = true;
-      btn.disabled = true;
-      btn.textContent = "Generating…";
-      setStatus("Thinking…", "load");
-      try {
-        const answer = await onGenerate(q, hEl.value.trim());
-        setStatus("Inserted into field ✓  " + truncate(answer), "ok");
-        btn.textContent = "Regenerate";
-      } catch (e) {
-        setStatus(e.message || "Failed.", "err");
-        btn.textContent = "Retry";
-      } finally {
-        busy = false;
-        btn.disabled = false;
-      }
+      batch.push({
+        id: "f" + idCounter++,
+        element: anchor,
+        question: q,
+        hint: hEl.value.trim(),
+      });
+      const n = batch.length;
+      // The badge is best-effort UI — it must never break the core add flow.
+      try { showBadge(anchor, "queued", n); } catch { /* badge is cosmetic */ }
+      toast(`Added (${n} field${n > 1 ? "s" : ""} in batch)`);
+      refreshBatchChip();
+      close();
     }
 
-    btn.addEventListener("click", generate);
+    btn.addEventListener("click", addToBatch);
+    genAllLink.addEventListener("click", generateAll);
     $("button.close").addEventListener("click", close);
     qEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        generate();
+        addToBatch();
       }
     });
     hEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        generate();
+        addToBatch();
       }
     });
 
@@ -317,6 +394,219 @@
     return { close };
   }
 
+  /* ---------------- per-field badge ---------------- */
+  // A small fixed indicator pinned to the left of a batched field, showing its
+  // state: queued (number) -> processing (spinner). Removed on done/error. Like
+  // the card/chip/pill it lives in a Shadow DOM host so page CSS can't touch it.
+  const BADGE_CSS = `
+    .badge { position: fixed; z-index: 2147483645; display: flex; align-items: center;
+             justify-content: center; font: 600 11px/1 -apple-system, system-ui, sans-serif;
+             color: #fff; border-radius: 8px; padding: 3px 6px;
+             box-shadow: 0 2px 8px rgba(15,23,42,.25); transition: background .15s; }
+    .badge.queued { background: #3B82F6; min-width: 18px; }
+    .badge.processing { background: #6b7280; }
+    .spin { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.35);
+            border-top-color: #fff; border-radius: 50%;
+            animation: ih-badge-spin .7s linear infinite; display: inline-block; }
+    @keyframes ih-badge-spin { to { transform: rotate(360deg); } }
+  `;
+  const badgeHosts = []; // { element, hostEl, badgeEl } — for scroll/resize repos
+  function showBadge(element, state, num) {
+    // Remove any existing badge on this element first.
+    removeBadge(element);
+    const host = document.createElement("div");
+    host.style.cssText = "all: initial;";
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>${BADGE_CSS}</style><div class="badge queued"></div>`;
+    const badgeEl = root.querySelector(".badge");
+    document.body.appendChild(host);
+    const entry = { element, hostEl: host, badgeEl };
+    badgeHosts.push(entry);
+    setBadgeState(element, state, num);
+    positionBadge(entry);
+    return entry;
+  }
+  function setBadgeState(element, state, num) {
+    const entry = badgeHosts.find((b) => b.element === element);
+    if (!entry) return;
+    const { badgeEl } = entry;
+    badgeEl.className = `badge ${state}`;
+    if (state === "queued") {
+      badgeEl.textContent = num != null ? String(num) : "✓";
+    } else if (state === "processing") {
+      badgeEl.innerHTML = `<span class="spin"></span>`;
+    }
+  }
+  function removeBadge(element) {
+    const idx = badgeHosts.findIndex((b) => b.element === element);
+    if (idx === -1) return;
+    badgeHosts[idx].hostEl.remove();
+    badgeHosts.splice(idx, 1);
+  }
+  // Position the badge relative to its field. Wrapped so a positioning error
+  // can NEVER abort the add-to-batch flow (that was the bug: an exception here
+  // killed addToBatch before close() ran).
+  function positionBadge(entry) {
+    try {
+      if (!document.contains(entry.element)) { removeBadge(entry.element); return; }
+      const r = entry.element.getBoundingClientRect();
+      entry.badgeEl.style.left = `${Math.max(4, r.left - 28)}px`;
+      entry.badgeEl.style.top = `${r.top + Math.max(0, (r.height - 18) / 2)}px`;
+    } catch {
+      /* best effort — never abort the caller */
+    }
+  }
+  function repositionAllBadges() { badgeHosts.forEach(positionBadge); }
+
+  /* ---------------- persistent batch chip ---------------- */
+  // The "Generate all" trigger must always be reachable, even after the card
+  // closes on each add. This floating bottom-right chip shows whenever the
+  // batch has ≥1 field, tracks the count live, and is the primary generate
+  // trigger. Shadow DOM so the page can't style it.
+  let batchChip = null;
+  function ensureBatchChip() {
+    if (batchChip && document.contains(batchChip.hostEl)) return;
+    const host = document.createElement("div");
+    host.style.cssText = "all: initial;";
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = `
+      <style>
+        .chip { position: fixed; bottom: 24px; right: 24px;
+                background: #3B82F6; color: #fff;
+                font: 13px/1 -apple-system, system-ui, sans-serif;
+                padding: 10px 14px; border-radius: 999px;
+                box-shadow: 0 6px 20px rgba(15,23,42,.28);
+                z-index: 2147483646; cursor: pointer;
+                display: flex; align-items: center; gap: 8px;
+                user-select: none; transition: background .15s; }
+        .chip:hover { background: #2563eb; }
+        .count { background: rgba(255,255,255,.25); padding: 3px 7px;
+                 border-radius: 999px; font-weight: 700; font-size: 12px; }
+      </style>
+      <div class="chip" title="Run the agent over every queued field">
+        <span class="label">Generate all</span><span class="count">0</span>
+      </div>`;
+    const chipEl = root.querySelector(".chip");
+    const countEl = root.querySelector(".count");
+    chipEl.addEventListener("click", generateAll);
+    document.body.appendChild(host);
+    batchChip = { hostEl: host, chipEl, countEl };
+  }
+  function refreshBatchChip() {
+    const n = batch.length;
+    if (n === 0) {
+      if (batchChip) { batchChip.hostEl.remove(); batchChip = null; }
+      return;
+    }
+    ensureBatchChip();
+    batchChip.countEl.textContent = String(n);
+  }
+
+  /* ---------------- progress pill (shown during batch generation) ---------------- */
+  // A small fixed bottom-center pill with a live elapsed counter, so the user
+  // can see the agent is working across the (slow) batch run. Shadow DOM like
+  // the toast so page CSS can't touch it.
+  function showPill(initialText, { error = false } = {}) {
+    const host = document.createElement("div");
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = `
+      <style>
+        .pill { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+                background: ${error ? "#7f1d1d" : "#111827"}; color: #fff;
+                font: 13px/1.4 -apple-system, system-ui, sans-serif;
+                padding: 10px 16px; border-radius: 999px;
+                box-shadow: 0 6px 20px rgba(0,0,0,.3); z-index: 2147483647;
+                max-width: 80vw; display: flex; align-items: center; gap: 8px; }
+        .spin { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.3);
+                border-top-color: #fff; border-radius: 50%;
+                animation: ih-spin .8s linear infinite; }
+        @keyframes ih-spin { to { transform: rotate(360deg); } }
+      </style>
+      <div class="pill"><span class="spin" style="display:none"></span><span class="txt"></span></div>`;
+    const txtEl = root.querySelector(".txt");
+    const spinEl = root.querySelector(".spin");
+    txtEl.textContent = initialText;
+    spinEl.style.display = error ? "none" : "inline-block";
+    document.body.appendChild(host);
+    let tick = null;
+    const state = { startedAt: 0, prefix: "" };
+    return {
+      setText(text) { txtEl.textContent = text; },
+      startCounter(startedAt, prefix) {
+        state.startedAt = startedAt;
+        state.prefix = prefix;
+        tick = setInterval(() => {
+          const s = Math.floor((Date.now() - state.startedAt) / 1000);
+          txtEl.textContent = `${state.prefix} (${s}s)`;
+        }, 1000);
+      },
+      setPrefix(prefix) { state.prefix = prefix; },
+      stopCounter() { if (tick) { clearInterval(tick); tick = null; } },
+      setError(text) { spinEl.style.display = "none"; host.querySelector(".pill").style.background = "#7f1d1d"; txtEl.textContent = text; },
+      remove(delay = 0) {
+        this.stopCounter();
+        if (delay > 0) { setTimeout(() => host.remove(), delay); }
+        else { host.remove(); }
+      },
+    };
+  }
+
+  /* ---------------- batch generation ---------------- */
+  // Run the agent once over every queued field, then write each answer back
+  // into its captured element. The pill reports progress; on error the batch is
+  // kept so the user can retry without re-queuing.
+  async function generateAll() {
+    if (batch.length === 0) return;
+    if (active) { active.close(); active = null; }
+
+    const items = batch.map((b) => ({ id: b.id, question: b.question, hint: b.hint }));
+    const n = batch.length;
+    // Hide the batch chip while generating — the progress pill takes over.
+    if (batchChip) batchChip.hostEl.style.display = "none";
+    // Flip every field's badge to processing.
+    batch.forEach((b) => setBadgeState(b.element, "processing"));
+
+    const startedAt = Date.now();
+    const prefix = `Filling ${n} field${n > 1 ? "s" : ""}…`;
+    const pill = showPill(`${prefix} (0s)`);
+    // The counter ticks every second; onPoll updates the prefix with the
+    // server-side status (e.g. "running") so the user sees the agent's phase.
+    pill.startCounter(startedAt, prefix);
+    const phasePrefix = { running: `Researching + filling ${n} field${n > 1 ? "s" : ""}…` };
+
+    try {
+      const answers = await fetchAnswers(items, {
+        onPoll: (status) => {
+          if (phasePrefix[status]) pill.setPrefix(phasePrefix[status]);
+        },
+      });
+      const byId = new Map(answers.map((a) => [a.id, a.answer]));
+      let filled = 0;
+      let skipped = 0;
+      for (const entry of batch) {
+        const answer = byId.get(entry.id);
+        if (!answer || !answer.trim()) { skipped++; continue; }
+        if (!document.contains(entry.element)) { skipped++; continue; }
+        writeValue(entry.element, answer);
+        filled++;
+      }
+      pill.stopCounter();
+      let msg = `Done — filled ${filled} field${filled !== 1 ? "s" : ""}`;
+      if (skipped) msg += ` (${skipped} skipped)`;
+      pill.setText(msg);
+      batch.forEach((b) => removeBadge(b.element)); // answers are in — clear badges
+      batch = []; // success — clear the queue
+      refreshBatchChip(); // chip stays hidden (batch empty)
+      pill.remove(2500);
+    } catch (e) {
+      pill.setError(e.message || "Failed.");
+      // Batch is kept so the user can retry — flip badges back to queued.
+      batch.forEach((b, i) => setBadgeState(b.element, "queued", i + 1));
+      if (batchChip) batchChip.hostEl.style.display = "";
+      pill.remove(5000);
+    }
+  }
+
   /* ---------------- orchestration ---------------- */
   function openCard() {
     const target = currentTarget();
@@ -331,11 +621,6 @@
     active = buildCard({
       anchor: target,
       question: extractQuestion(target),
-      onGenerate: async (q, hint) => {
-        const answer = await fetchAnswer(q, hint);
-        writeValue(target, answer);
-        return answer;
-      },
     });
   }
 
@@ -346,6 +631,9 @@
     },
     true
   );
+  // Keep field badges glued to their inputs while scrolling/resizing.
+  window.addEventListener("scroll", repositionAllBadges, true);
+  window.addEventListener("resize", repositionAllBadges);
 
   browser.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "OPEN_CARD") openCard();
