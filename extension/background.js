@@ -65,6 +65,7 @@ browser.runtime.onMessage.addListener((msg) => {
           hint: msg.hint,
           jd: msg.jd,
           profile: msg.profile,
+          limit: msg.limit,
         });
         if (!ok) return { error: data.error || `Helper error (HTTP ${status}).` };
         if (!data.answer) return { error: "The helper returned no answer." };

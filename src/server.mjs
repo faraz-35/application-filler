@@ -104,22 +104,23 @@ const server = http.createServer(async (req, res) => {
       return send(res, 400, { error: "Invalid JSON body." });
     }
 
-    const { question, profile, hint, jd } = body;
+    const { question, profile, hint, jd, limit } = body;
     // profile is accepted for request-shape compatibility but the agentic path
     // uses a single workspace (workspace/) regardless of profile — the persona
     // and skills are the same. Multi-profile workspaces are a future enhancement.
     // Log which fields arrived and how big (not their contents) — this is how to
     // confirm the extension is sending hint/jd with each request. Goes to stdout
     // and server.log (inspectable after the fact).
+    const limStr = limit ? `${limit.value}${limit.unit === "words" ? "w" : "c"}` : "0";
     logLine(
       `POST /answer profile=${profile || "interview"} ` +
-        `q=${question?.length || 0}c hint=${hint?.length || 0}c jd=${jd?.length || 0}c`
+        `q=${question?.length || 0}c hint=${hint?.length || 0}c jd=${jd?.length || 0}c limit=${limStr}`
     );
     const startedAt = Date.now();
     try {
       // Agentic: shells out to opencode over workspace/. Slow (10-40s typical)
       // because the agent may invoke skills and reason before answering.
-      const result = await answerAgentic(question, { hint, jd });
+      const result = await answerAgentic(question, { hint, jd, limit });
       const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
       logLine(`POST /answer -> 200 (${elapsed}s)`);
       return send(res, 200, { answer: result });

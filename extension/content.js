@@ -110,6 +110,71 @@
     return "";
   }
 
+  /* ---------------- word/char limit detection ---------------- */
+  // Best-effort detection of a field's answer-length limit. Returns null when
+  // nothing is found. Sources, in priority order:
+  //   1. `maxlength` / `maxLength` attribute (chars) — the native HTML cap.
+  //   2. data attributes: data-maxlength, data-max-words, data-limit,
+  //      data-char-limit, data-word-limit.
+  //   3. Hint text near the field: "max 500 characters", "up to 100 words",
+  //      "(150 char max)", "limit: 200". Walks labels, aria, placeholder, and
+  //      a few sibling/ancestor text nodes.
+  // We report WORDS when the source says "words" (common for essay fields),
+  // otherwise CHARACTERS. The agent prompt uses whichever we find.
+  function extractLimit(el) {
+    // 1. Native maxlength (input/textarea).
+    const ml = el.getAttribute("maxlength") || el.maxLength;
+    if (ml && Number(ml) > 0) return { value: Number(ml), unit: "characters" };
+
+    // 2. data-* attributes.
+    const ds = el.dataset || {};
+    const dw = ds.maxWords || ds.maxWords || ds.wordLimit;
+    if (dw && Number(dw) > 0) return { value: Number(dw), unit: "words" };
+    const dc = ds.maxlength || ds.charLimit || ds.limit;
+    if (dc && Number(dc) > 0) return { value: Number(dc), unit: "characters" };
+
+    // 3. Hint text near the field. Gather candidate strings first.
+    const candidates = [];
+    if (el.id) {
+      const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (lab?.textContent) candidates.push(lab.textContent);
+    }
+    const wrap = el.closest("label");
+    if (wrap?.textContent) candidates.push(wrap.textContent);
+    const labelledBy = el.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const t = document.getElementById(labelledBy)?.textContent;
+      if (t) candidates.push(t);
+    }
+    if (el.getAttribute("aria-label")) candidates.push(el.getAttribute("aria-label"));
+    if (el.placeholder) candidates.push(el.placeholder);
+    if (el.title) candidates.push(el.title);
+    // Walk up + sideways for small hint text (e.g. a <small> under the field).
+    let node = el;
+    for (let depth = 0; depth < 3 && node; depth++, node = node.parentElement) {
+      const sib = node.nextElementSibling;
+      if (sib) candidates.push(sib.textContent);
+      const prev = node.previousElementSibling;
+      if (prev) candidates.push(prev.textContent);
+    }
+
+    for (const raw of candidates) {
+      if (!raw) continue;
+      // Word limit: "up to 100 words", "max 250 words", "100 word limit".
+      const wm = raw.match(/(?:max(?:imum)?|up to|limit(?:ed)?(?: to)?|≤)\s*(\d+)\s*(?:-?\s*)?word/i);
+      if (wm) return { value: Number(wm[1]), unit: "words" };
+      const wm2 = raw.match(/(\d+)\s*(?:-?\s*)?word(?:s)?(?:\s*(?:max|limit|maximum))?/i);
+      if (wm2) return { value: Number(wm2[1]), unit: "words" };
+      // Character limit: "max 500 characters", "(150 char max)", "limit: 200".
+      const cm = raw.match(/(?:max(?:imum)?|up to|limit(?:ed)?(?: to)?|≤)\s*(\d+)\s*(?:-?\s*)?(?:char(?:acter)?s?)/i);
+      if (cm) return { value: Number(cm[1]), unit: "characters" };
+      const cm2 = raw.match(/(\d+)\s*(?:-?\s*)?char(?:acter)?s?(?:\s*(?:max|limit|maximum))?/i);
+      if (cm2) return { value: Number(cm2[1]), unit: "characters" };
+    }
+
+    return null;
+  }
+
   /* ---------------- writing the answer back (framework-aware) ---------------- */
   function writeValue(el, value) {
     if (el.isContentEditable) {
@@ -137,7 +202,7 @@
   // block a content-script fetch to 127.0.0.1 with a NetworkError.
 
   // Single-field fetch (used by /answer). Kept for the single-field path.
-  async function fetchAnswer(question, hint) {
+  async function fetchAnswer(question, hint, limit) {
     const { profile, jd } = await getSettings();
     const res = await browser.runtime.sendMessage({
       type: "ANSWER",
@@ -145,6 +210,7 @@
       hint,
       jd,
       profile,
+      limit,
     });
     if (res?.error) throw new Error(res.error);
     if (!res?.answer) throw new Error("The helper returned no answer.");
@@ -328,11 +394,15 @@
         element: anchor,
         question: q,
         hint: hEl.value.trim(),
+        limit: (() => { try { return extractLimit(anchor); } catch { return null; } })(),
       });
       const n = batch.length;
       // The badge is best-effort UI — it must never break the core add flow.
       try { showBadge(anchor, "queued", n); } catch { /* badge is cosmetic */ }
-      toast(`Added (${n} field${n > 1 ? "s" : ""} in batch)`);
+      const limStr = batch[batch.length - 1].limit
+        ? ` · ${batch[batch.length - 1].limit.value} ${batch[batch.length - 1].limit.unit} max`
+        : "";
+      toast(`Added (${n} field${n > 1 ? "s" : ""} in batch${limStr})`);
       refreshBatchChip();
       close();
     }
@@ -559,7 +629,12 @@
     if (batch.length === 0) return;
     if (active) { active.close(); active = null; }
 
-    const items = batch.map((b) => ({ id: b.id, question: b.question, hint: b.hint }));
+    const items = batch.map((b) => ({
+      id: b.id,
+      question: b.question,
+      hint: b.hint,
+      limit: b.limit || undefined,
+    }));
     const n = batch.length;
     // Hide the batch chip while generating — the progress pill takes over.
     if (batchChip) batchChip.hostEl.style.display = "none";

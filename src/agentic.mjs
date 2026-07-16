@@ -180,9 +180,16 @@ export function extractFinalText(stdout) {
 // The persona + output/humanizing rules live in workspace/AGENTS.md (read by
 // opencode as the project root instructions). This function only builds the
 // per-call user message: the question, plus optional jd/hint.
-function buildMessage(question, { hint, jd } = {}) {
+function buildMessage(question, { hint, jd, limit } = {}) {
   const blocks = [`QUESTION (from a job application form):\n${question}`];
 
+  if (limit && limit.value > 0) {
+    blocks.push(
+      `LENGTH LIMIT (hard cap enforced by the form): keep the answer at or under ` +
+        `${limit.value} ${limit.unit || "characters"}. ` +
+        `When tight, prioritize the most relevant specifics and cut filler first.`
+    );
+  }
   if (jd && jd.trim()) {
     blocks.push(
       `JOB DESCRIPTION (the role being applied for — tailor the answer to it):\n${jd.trim()}`
@@ -208,14 +215,14 @@ function buildMessage(question, { hint, jd } = {}) {
 export async function answerAgentic(question, opts = {}) {
   // Default 10 min to match the batch path and the client ceiling. A single
   // skill-grounded answer can exceed 2 min (runOpencode's own default).
-  const { hint, jd, timeout = 600000 } = opts;
+  const { hint, jd, limit, timeout = 600000 } = opts;
 
   const q = (question ?? "").toString().trim();
   if (!q) {
     throw new InputError("No question provided.");
   }
 
-  const message = buildMessage(q, { hint, jd });
+  const message = buildMessage(q, { hint, jd, limit });
   const stdout = await runOpencode(message, { timeout });
   const out = extractFinalText(stdout).trim();
   if (!out) {
@@ -268,12 +275,19 @@ export function createBatchJob(items, { jd } = {}) {
   const skeleton = {
     status: "pending",
     jd: (jd || "").trim(),
-    fields: items.map((it) => ({
-      id: it.id,
-      question: it.question,
-      hint: (it.hint || "").trim(),
-      answer: "",
-    })),
+    fields: items.map((it) => {
+      const f = {
+        id: it.id,
+        question: it.question,
+        hint: (it.hint || "").trim(),
+        answer: "",
+      };
+      // Carry the detected limit through so the agent sizes its answer.
+      if (it.limit && it.limit.value > 0) {
+        f.limit = { value: it.limit.value, unit: it.limit.unit || "characters" };
+      }
+      return f;
+    }),
   };
   writeFileSync(jobPath, JSON.stringify(skeleton, null, 2), "utf8");
   return { jobId };
@@ -383,6 +397,10 @@ function buildBatchPrompt(relPath, count, jd) {
     "  question, just as for a single-field request.",
     "- Answer all fields CONSISTENTLY — don't contradict yourself across fields.",
     "- The answer for each field is paste-ready into a single form input.",
+    "- If a field has a \"limit\" ({ value, unit }), STRICTLY respect it: keep the",
+    "  answer at or under that many words (unit: \"words\") or characters",
+    "  (unit: \"characters\"). This is a hard cap the form enforces. When the limit",
+    "  is tight, prioritize the most relevant specifics and cut filler first.",
     "- WRITE the file back when done (update the in-place \`answer\` values).",
     "- Output NOTHING to the response — your work is in the file, not stdout.",
   ];
