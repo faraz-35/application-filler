@@ -169,7 +169,30 @@ node --env-file=.env src/answer.mjs parhako     # run a specific profile
 
 # Extension path (keep running while using the extension)
 npm run server                                  # local helper on http://127.0.0.1:8775 (HELPER_PORT to override)
+                                                # NOTE: launchd usually keeps this running for you — see below.
 ```
+
+### Extension server auto-start (launchd)
+
+`com.faraz.application-filler.plist` (checked in) runs the server as a
+**LaunchAgent** that starts at login and auto-restarts on crash/exit
+(`KeepAlive`). It is symlinked into `~/Library/LaunchAgents/`. So in normal use
+you do NOT need `npm run server` — the helper is already up at
+`http://127.0.0.1:8775`. Verify with `curl http://127.0.0.1:8775/health`.
+
+```sh
+launchctl load   ~/Library/LaunchAgents/com.faraz.application-filler.plist   # install/start
+launchctl unload ~/Library/LaunchAgents/com.faraz.application-filler.plist   # stop + disable
+tail -f logs/launchd.out.log logs/launchd.err.log                          # launchd's own log
+```
+
+Notes:
+- It calls `/Users/farazshah/.local/bin/node` directly because launchd starts
+  processes with a near-empty `PATH`. `PATH` is also set explicitly so opencode
+  resolves if it ever falls back to PATH lookup.
+- The `ThrottleInterval` (10s) guards against a tight restart loop if the server
+  fails fast (e.g. port already taken). `npm run server` still works for a
+  manual foreground run, but launchd will fight you for the port — unload first.
 
 There is **no linter, typecheck, or test suite** configured. Verify changes by:
 1. **Hotkey:** `npm run answer` with a question on the clipboard — expect a

@@ -168,9 +168,21 @@ const server = http.createServer(async (req, res) => {
     const jobId = pathname.slice("/answer-batch/".length);
     try {
       const result = getBatchJob(jobId);
+      // Log every poll so server.log shows whether the extension is polling at
+      // all — previously this handler was silent, leaving a blind spot between
+      // the 202 POST and the agent's completion (the cause of an unfillable
+      // "did the client ever poll?" mystery).
+      const summary =
+        result.status === "done"
+          ? `done (${result.answers?.length || 0} answers)`
+          : result.status === "error"
+            ? `error: ${result.error || "?"}`
+            : result.status;
+      logLine(`GET /answer-batch/${jobId} -> ${summary}`);
       return send(res, 200, result);
     } catch (err) {
       const status = statusFor(err);
+      logLine(`GET /answer-batch/${jobId} -> ${status} ${err.message}`);
       return send(res, status, { status: "error", error: err.message });
     }
   }

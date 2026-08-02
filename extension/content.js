@@ -12,6 +12,10 @@
   if (window.__ihInjected) return;
   window.__ihInjected = true;
 
+  const TAG = "[ih]";
+  const log = (...a) => console.log(TAG, ...a);
+  const logErr = (...a) => console.error(TAG, ...a);
+
   // The last field the user focused, so the card can safely steal focus for its
   // inputs without losing track of where the answer should go.
   let lastEditable = null;
@@ -133,7 +137,16 @@
     const dc = ds.maxlength || ds.charLimit || ds.limit;
     if (dc && Number(dc) > 0) return { value: Number(dc), unit: "characters" };
 
-    // 3. Hint text near the field. Gather candidate strings first.
+    // 3. Hint text directly tied to THIS field. We do NOT walk up to
+    //    ancestors/aunts/uncles: a shared form container often holds ANOTHER
+    //    field's limit hint, and attributing that limit to this field produces
+    //    false caps (the agent then truncates a long answer to fit a number that
+    //    never applied — e.g. a sibling field's "50 characters" leaking into a
+    //    5000-char essay field). Only field-bound sources are scanned, and each
+    //    candidate must be SHORT: a real limit hint is tight ("max 500
+    //    characters", "(150 char max)"), while a long paragraph that merely
+    //    contains a number is almost certainly unrelated.
+    const MAX_HINT = 120;
     const candidates = [];
     if (el.id) {
       const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
@@ -149,17 +162,18 @@
     if (el.getAttribute("aria-label")) candidates.push(el.getAttribute("aria-label"));
     if (el.placeholder) candidates.push(el.placeholder);
     if (el.title) candidates.push(el.title);
-    // Walk up + sideways for small hint text (e.g. a <small> under the field).
-    let node = el;
-    for (let depth = 0; depth < 3 && node; depth++, node = node.parentElement) {
-      const sib = node.nextElementSibling;
-      if (sib) candidates.push(sib.textContent);
-      const prev = node.previousElementSibling;
-      if (prev) candidates.push(prev.textContent);
-    }
+    // Direct siblings only (a tight hint element right next to the field, e.g.
+    // a <small>500 char max</small>). The length cap below filters out any
+    // sibling whose text is too long to be a clean hint.
+    const nextSib = el.nextElementSibling;
+    if (nextSib?.textContent) candidates.push(nextSib.textContent);
+    const prevSib = el.previousElementSibling;
+    if (prevSib?.textContent) candidates.push(prevSib.textContent);
 
     for (const raw of candidates) {
-      if (!raw) continue;
+      // Long text is almost certainly the question prose or an unrelated block,
+      // not a limit hint. Skip it rather than hunt for a number inside it.
+      if (!raw || raw.length > MAX_HINT) continue;
       // Word limit: "up to 100 words", "max 250 words", "100 word limit".
       const wm = raw.match(/(?:max(?:imum)?|up to|limit(?:ed)?(?: to)?|≤)\s*(\d+)\s*(?:-?\s*)?word/i);
       if (wm) return { value: Number(wm[1]), unit: "words" };
@@ -234,12 +248,14 @@
     if (start?.error) throw new Error(start.error);
     if (!start?.jobId) throw new Error("The helper returned no job id.");
     const { jobId } = start;
+    log("batch started, jobId=", jobId, "fields=", items.length);
 
     // 2. Poll until terminal. Short requests keep the background page alive.
     const startedAt = Date.now();
     const POLL_MS = 3000;
     const MAX_MS = 600000; // 10 min ceiling — same as the server-side opencode timeout
     let lastStatus = "pending";
+    let pollCount = 0;
     while (true) {
       if (Date.now() - startedAt > MAX_MS) {
         throw new Error("Timed out waiting for the agent (over 10 minutes).");
@@ -248,8 +264,10 @@
         type: "ANSWER_BATCH_POLL",
         jobId,
       });
-      if (res?.error) throw new Error(res.error);
+      pollCount++;
       lastStatus = res?.status || "pending";
+      log(`poll #${pollCount} (${((Date.now() - startedAt) / 1000).toFixed(0)}s) status=${lastStatus}`);
+      if (res?.error) throw new Error(res.error);
       if (onPoll) onPoll(lastStatus);
       if (lastStatus === "done") {
         if (!Array.isArray(res?.answers)) throw new Error("The helper returned no answers.");
@@ -643,6 +661,7 @@
 
     const startedAt = Date.now();
     const prefix = `Filling ${n} field${n > 1 ? "s" : ""}…`;
+    log(`generateAll start: ${n} field(s)`, batch.map((b) => ({ id: b.id, question: b.question.slice(0, 40) })));
     const pill = showPill(`${prefix} (0s)`);
     // The counter ticks every second; onPoll updates the prefix with the
     // server-side status (e.g. "running") so the user sees the agent's phase.
@@ -655,16 +674,30 @@
           if (phasePrefix[status]) pill.setPrefix(phasePrefix[status]);
         },
       });
+      log("batch answers received:", answers.map((a) => ({ id: a.id, len: a.answer?.length || 0 })));
       const byId = new Map(answers.map((a) => [a.id, a.answer]));
+      const expectedIds = batch.map((b) => b.id);
+      const gotIds = answers.map((a) => a.id);
+      const missing = expectedIds.filter((id) => !gotIds.includes(id));
+      if (missing.length) logErr("answer ids missing from server:", missing, "got:", gotIds);
       let filled = 0;
       let skipped = 0;
       for (const entry of batch) {
         const answer = byId.get(entry.id);
-        if (!answer || !answer.trim()) { skipped++; continue; }
-        if (!document.contains(entry.element)) { skipped++; continue; }
+        if (!answer || !answer.trim()) {
+          logErr(`skip "${entry.id}": no answer text for this id`);
+          skipped++;
+          continue;
+        }
+        if (!document.contains(entry.element)) {
+          logErr(`skip "${entry.id}": element no longer in DOM (page navigated/SPA re-rendered)`);
+          skipped++;
+          continue;
+        }
         writeValue(entry.element, answer);
         filled++;
       }
+      log(`batch done: ${filled} filled, ${skipped} skipped`);
       pill.stopCounter();
       let msg = `Done — filled ${filled} field${filled !== 1 ? "s" : ""}`;
       if (skipped) msg += ` (${skipped} skipped)`;
@@ -674,6 +707,7 @@
       refreshBatchChip(); // chip stays hidden (batch empty)
       pill.remove(2500);
     } catch (e) {
+      logErr("generateAll failed:", e.message || e);
       pill.setError(e.message || "Failed.");
       // Batch is kept so the user can retry — flip badges back to queued.
       batch.forEach((b, i) => setBadgeState(b.element, "queued", i + 1));

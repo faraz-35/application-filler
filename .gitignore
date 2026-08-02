@@ -3,5 +3,6 @@ node_modules/
 .DS_Store
 hammerspoon/run.log
 server.log
+logs/
 workspace/.jobs/
 .zcode/

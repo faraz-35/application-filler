@@ -376,7 +376,34 @@ export function getBatchJob(jobId) {
     return { status: "pending" };
   }
   const out = { status: job.status || "pending" };
-  if (job.status === "done") out.answers = job.answers || [];
+  if (job.status === "done") {
+    // Prefer the validated top-level `answers` array that runBatchJob stamps.
+    // FALL BACK to deriving from `fields[].answer`: opencode fills those
+    // directly, and it sometimes writes status:"done" into the file ITSELF
+    // right after filling — BEFORE runBatchJob stamps the top-level array
+    // (~1s later). Without this fallback, a poll landing in that window sees
+    // status:"done" with no answers and reports "done (0 answers)", so the
+    // client skips every field. Deriving from fields closes the race.
+    const stamped = Array.isArray(job.answers) && job.answers.length ? job.answers : null;
+    const derived = (job.fields || [])
+      .map((f) => ({
+        id: f.id,
+        answer: typeof f.answer === "string" ? f.answer.trim() : "",
+      }))
+      .filter((a) => a.answer);
+    if (stamped) {
+      out.answers = stamped;
+    } else if (derived.length) {
+      out.answers = derived;
+    } else {
+      // status:"done" but NO answers anywhere: this was opencode marking the
+      // job done before/without filling fields (or before runBatchJob stamped
+      // the top-level array). runBatchJob only ever writes "done" WITH a
+      // non-empty answers array, so this state is transient — keep polling
+      // instead of falsely reporting done-with-zero and orphaning the answers.
+      out.status = "running";
+    }
+  }
   if (job.status === "error") out.error = job.error || "Unknown error.";
   return out;
 }

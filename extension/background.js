@@ -57,6 +57,7 @@ function messageForError(e, { batch = false } = {}) {
 }
 
 browser.runtime.onMessage.addListener((msg) => {
+  const log = (...a) => console.log("[ih-bg]", ...a);
   if (msg?.type === "ANSWER") {
     return (async () => {
       try {
@@ -79,14 +80,17 @@ browser.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "ANSWER_BATCH_START") {
     return (async () => {
       try {
+        log("ANSWER_BATCH_START fields=", msg.items?.length);
         const { ok, status, data } = await postJson("/answer-batch", {
           items: msg.items,
           jd: msg.jd,
         });
+        log("POST /answer-batch ->", status, data.jobId || data.error);
         if (!ok) return { error: data.error || `Helper error (HTTP ${status}).` };
         if (!data.jobId) return { error: "The helper returned no job id." };
         return { jobId: data.jobId };
       } catch (e) {
+        log("POST /answer-batch threw:", e?.name, e?.message);
         return { error: messageForError(e, { batch: true }) };
       }
     })();
@@ -98,9 +102,13 @@ browser.runtime.onMessage.addListener((msg) => {
         const res = await fetch(`${SERVER}/answer-batch/${msg.jobId}`, { signal: AbortSignal.timeout(30000) });
         let data = {};
         try { data = await res.json(); } catch { /* non-JSON */ }
-        if (!res.ok) return { error: data.error || `Helper error (HTTP ${res.status}).` };
+        if (!res.ok) {
+          log("POLL", msg.jobId, "-> HTTP", res.status, data.error || "");
+          return { error: data.error || `Helper error (HTTP ${res.status}).` };
+        }
         return data; // { status, answers?, error? }
       } catch (e) {
+        log("POLL", msg.jobId, "threw:", e?.name, e?.message);
         return { error: messageForError(e, { batch: true }) };
       }
     })();
