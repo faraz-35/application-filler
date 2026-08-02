@@ -1,4 +1,4 @@
- -- Interview Helper — global hotkey to AI-fill the focused form field.
+ -- Application Filler — global hotkey to AI-fill the focused form field.
 --
 -- Workflow: copy a question -> press a hotkey -> a spinner follows your cursor
 -- while the AI thinks, then the answer is pasted into whatever field has focus
@@ -11,7 +11,7 @@
 --   Cmd + Alt + J   -> "interview" profile  (blue spinner)
 --   Cmd + Alt + P   -> "parhako"   profile  (purple spinner)
 
-local projectDir = "/Users/farazshah/Programming/interview-helper"
+local projectDir = "/Users/farazshah/Programming/application-filler"
 local logPath = projectDir .. "/hammerspoon/run.log"
 
 local function logf(msg)

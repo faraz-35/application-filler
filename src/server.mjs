@@ -179,7 +179,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`interview-helper server on http://${HOST}:${PORT}`);
+  console.log(`application-filler server on http://${HOST}:${PORT}`);
   console.log(`  POST /answer         { question, profile?, hint?, jd? }  (single, agentic)`);
   console.log(`  POST /answer-batch   { items:[{id,question,hint?}], jd }  -> { jobId }  (202, async)`);
   console.log(`  GET  /answer-batch/<jobId>                              poll -> { status, answers? }`);

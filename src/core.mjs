@@ -1,4 +1,4 @@
-// Shared engine for interview-helper: config, profile loading, prompt assembly,
+// Shared engine for application-filler: config, profile loading, prompt assembly,
 // and the GLM call. Used by both the CLI (src/answer.mjs) and the local helper
 // server (src/server.mjs). No dependencies — Node natives only.
 //

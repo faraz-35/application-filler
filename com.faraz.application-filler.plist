@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keeps the application-filler extension server (src/server.mjs) always running:
+  starts at login, auto-restarts if it exits/crashes (KeepAlive), and survives
+  reboots. The extension talks to this server at http://127.0.0.1:8775.
+
+  Install / update after editing:
+    launchctl load -w ~/Library/LaunchAgents/com.faraz.application-filler.plist
+  Uninstall (stop + disable):
+    launchctl unload -w ~/Library/LaunchAgents/com.faraz.application-filler.plist
+  Tail the logs:
+    tail -f logs/launchd.out.log logs/launchd.err.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.faraz.application-filler</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <!-- Call node directly. launchd has a minimal PATH, so we don't rely on a
+         shell "node" lookup. ~/.local/bin/node is a symlink to the real binary,
+         which is fine — launchd follows it. -->
+    <string>/Users/farazshah/.local/bin/node</string>
+    <string>--env-file=.env</string>
+    <string>src/server.mjs</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/farazshah/Programming/application-filler</string>
+
+  <!-- The "always running" part: run at load and restart on any exit/crash.
+       The 10s throttle prevents a tight restart loop if it fails fast. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/farazshah/Programming/application-filler/logs/launchd.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/farazshah/Programming/application-filler/logs/launchd.err.log</string>
+
+  <!-- launchd starts us with a near-empty PATH. opencode (spawned by the
+       server's agentic path) resolves to ~/.opencode/bin/opencode on its own,
+       but give it a sane PATH anyway in case resolution falls back to PATH. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/farazshah/.opencode/bin:/Users/farazshah/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>

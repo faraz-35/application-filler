@@ -1,4 +1,4 @@
-# interview-helper
+# application-filler
 
 AI helper that fills form fields from global hotkeys. Each hotkey loads its own
 **profile** — a folder of markdown context — so one codebase serves many
@@ -34,7 +34,7 @@ No dependencies — uses Node's native `fetch`. Your API key stays local in `.en
 
 ### 1. Add your key
 ```sh
-cd /Users/farazshah/Programming/interview-helper
+cd /Users/farazshah/Programming/application-filler
 cp .env.example .env
 # then edit .env and paste your ZAI_API_KEY
 ```
@@ -66,7 +66,7 @@ Hammerspoon needs this to read the clipboard and paste into other apps:
 Hammerspoon's config lives at `~/.hammerspoon/init.lua`. Add this one line
 (create the file if it doesn't exist):
 ```lua
-dofile("/Users/farazshah/Programming/interview-helper/hammerspoon/init.lua")
+dofile("/Users/farazshah/Programming/application-filler/hammerspoon/init.lua")
 ```
 Then reload: click the Hammerspoon menu-bar icon → **Reload Config** (or `⌃⌥⌘R`).
 

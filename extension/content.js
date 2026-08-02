@@ -1,4 +1,4 @@
-// Interview Helper — content script.
+// Application Filler — content script.
 //
 // Listens for the "open card" shortcut (relayed by the background), finds the
 // focused field, auto-extracts its question, and shows an inline card with an
@@ -330,7 +330,7 @@
       <div class="wrap">
         <div class="card">
           <div class="head">
-            <span class="dot"></span><span class="title">Interview Helper</span>
+            <span class="dot"></span><span class="title">Application Filler</span>
             <span class="spacer"></span>
             <button class="close" title="Close (Esc)" aria-label="Close">✕</button>
           </div>

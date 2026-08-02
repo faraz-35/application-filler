@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Interview Helper",
+  "name": "Application Filler",
   "version": "0.1.0",
-  "description": "AI-answer the focused job-form field, grounded in your profile and the job description. Talks to your local interview-helper server (127.0.0.1:8775).",
+  "description": "AI-answer the focused job-form field, grounded in your profile and the job description. Talks to your local application-filler server (127.0.0.1:8775).",
 
   "browser_specific_settings": {
     "gecko": {
-      "id": "interview-helper@local",
+      "id": "application-filler@local",
       "strict_min_version": "115.0"
     }
   },
@@ -28,7 +28,7 @@
   },
 
   "action": {
-    "default_title": "Interview Helper",
+    "default_title": "Application Filler",
     "default_popup": "popup.html",
     "default_icon": "icons/icon.svg"
   },
