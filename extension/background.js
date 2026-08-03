@@ -1,9 +1,11 @@
-// Background event page. Three jobs:
+// Background event page. Four jobs:
 //  1. Keyboard command → tell the active tab's content script to open the card
 //     (injecting content.js on demand if the tab predates the last reload —
 //     otherwise sendMessage throws "Receiving end does not exist").
 //  2. Fetch a single answer ON BEHALF of content scripts (message "ANSWER").
 //  3. Fetch a whole batch ON BEHALF of content scripts (message "ANSWER_BATCH").
+//  4. Save the user's own answer as a sample (message "SAVE_SAMPLE") — instant,
+//     no agent call. Lives here for the same CSP reason as the fetches above.
 //
 // (2) and (3) live here, not in content.js, on purpose: in Firefox a
 // content-script fetch is treated as coming from the web page, so the page's
@@ -110,6 +112,27 @@ browser.runtime.onMessage.addListener((msg) => {
       } catch (e) {
         log("POLL", msg.jobId, "threw:", e?.name, e?.message);
         return { error: messageForError(e, { batch: true }) };
+      }
+    })();
+  }
+
+  // Save the user's own answer as a reusable sample (no agent call — instant).
+  // Same CSP-driven reason to live here as the answer fetches above.
+  if (msg?.type === "SAVE_SAMPLE") {
+    return (async () => {
+      try {
+        const res = await fetch(`${SERVER}/save-sample`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: msg.question, answer: msg.answer, jd: msg.jd }),
+          signal: AbortSignal.timeout(30000),
+        });
+        let data = {};
+        try { data = await res.json(); } catch { /* non-JSON */ }
+        if (!res.ok) return { error: data.error || `Helper error (HTTP ${res.status}).` };
+        return { ok: true, id: data.id };
+      } catch (e) {
+        return { error: messageForError(e) };
       }
     })();
   }

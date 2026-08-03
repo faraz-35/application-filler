@@ -28,6 +28,7 @@ import {
   createBatchJob,
   runBatchJob,
   getBatchJob,
+  saveSample,
   isAvailable as opencodeAvailable,
 } from "./agentic.mjs";
 
@@ -187,6 +188,34 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Save the user's own answer as a reusable sample. The extension card's
+  // "Save answer" button POSTs the question + the field's current value
+  // (+ JD, when one is set). We write one entry into the my-answers skill —
+  // no agent call, instant. The agent later reads INDEX.md + the entry file.
+  if (req.method === "POST" && pathname === "/save-sample") {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      return send(res, 400, { error: "Invalid JSON body." });
+    }
+
+    const { question, answer, jd } = body;
+    logLine(
+      `POST /save-sample q=${question?.length || 0}c a=${answer?.length || 0}c ` +
+        `jd=${jd?.length || 0}c`
+    );
+    try {
+      const { id } = saveSample({ question, answer, jd });
+      logLine(`POST /save-sample -> 200 id=${id}`);
+      return send(res, 200, { ok: true, id });
+    } catch (err) {
+      const status = statusFor(err);
+      logLine(`POST /save-sample -> ${status} ${err.message}`);
+      return send(res, status, { error: err.message });
+    }
+  }
+
   return send(res, 404, { error: "Not found." });
 });
 
@@ -195,6 +224,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  POST /answer         { question, profile?, hint?, jd? }  (single, agentic)`);
   console.log(`  POST /answer-batch   { items:[{id,question,hint?}], jd }  -> { jobId }  (202, async)`);
   console.log(`  GET  /answer-batch/<jobId>                              poll -> { status, answers? }`);
+  console.log("  POST /save-sample    { question, answer, jd? }         -> { ok, id }  (instant, no agent)");
   console.log("  GET  /health");
   console.log("  GET  /profiles");
   if (!opencodeAvailable()) {

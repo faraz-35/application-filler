@@ -211,6 +211,21 @@
     el.dispatchEvent(new Event("blur", { bubbles: true }));
   }
 
+  // Read the field's current value — the inverse of writeValue, used to capture
+  // what the user actually wrote so it can be saved as a sample. Unlike clean(),
+  // this PRESERVES internal newlines (answers are often multi-paragraph); it
+  // only trims the edges and normalizes CRLF. Reading doesn't need the native
+  // getter trick — that's only for writing past framework overrides.
+  function readAnswer(el) {
+    let v;
+    if (el.isContentEditable) {
+      v = el.textContent || el.innerText || "";
+    } else {
+      v = el.value || "";
+    }
+    return v.replace(/\r\n/g, "\n").trim();
+  }
+
   /* ---------------- the brain call (via the background script) ---------------- */
   // Fetching through the background avoids the page's CSP, which would otherwise
   // block a content-script fetch to 127.0.0.1 with a NetworkError.
@@ -336,6 +351,15 @@
     .batch-bar a { color: #2563eb; font-weight: 600; cursor: pointer;
                    text-decoration: none; white-space: nowrap; }
     .batch-bar a:hover { text-decoration: underline; }
+    .save-row { display: flex; align-items: center; gap: 8px; margin-top: 8px;
+                padding-top: 8px; border-top: 1px solid #e5e7eb;
+                font-size: 12px; color: #6b7280; }
+    button.save { background: transparent; color: #374151; border: 1px solid #d1d5db;
+                  border-radius: 8px; padding: 5px 10px; font-size: 12px;
+                  font-weight: 600; cursor: pointer; white-space: nowrap; }
+    button.save:hover:not(:disabled) { background: #f3f4f6; border-color: #9ca3af; }
+    button.save:disabled { color: #9ca3af; cursor: default; }
+    .save-note { font-size: 11px; color: #9ca3af; }
   `;
 
   function buildCard({ anchor, question }) {
@@ -366,6 +390,10 @@
             <span class="spacer" style="flex:1"></span>
             <a class="gen-all" title="Run the agent over every queued field">Generate all</a>
           </div>
+          <div class="save-row">
+            <button class="save" title="Save this answer for the agent to reuse later">Save answer</button>
+            <span class="save-note">stores your real wording for next time</span>
+          </div>
           <div class="hint">Ctrl/⌘+Enter adds to batch · Esc closes</div>
         </div>
       </div>`;
@@ -375,6 +403,7 @@
     const qEl = $("textarea");
     const hEl = $("input");
     const btn = $("button.gen");
+    const saveBtn = $("button.save");
     const statusEl = $(".status");
     const batchBar = $(".batch-bar");
     const batchCountEl = $(".batch-count");
@@ -386,6 +415,47 @@
       statusEl.textContent = text || "";
       statusEl.className = "status" + (kind ? " " + kind : "");
     };
+
+    // Save the user's answer as a reusable sample. Reads the field's LIVE value
+    // at click time — so it captures whatever's in the field, whether typed by
+    // hand or filled by the agent and then edited. The card's question field is
+    // the question; the JD (if set in the toolbar) is included automatically.
+    // Button is enabled whenever the field has content; no generation needed.
+    async function saveAnswer() {
+      if (busy) return;
+      const answer = readAnswer(anchor);
+      if (!answer) {
+        toast("Field is empty — nothing to save.", "error");
+        return;
+      }
+      const q = qEl.value.trim();
+      if (!q) {
+        toast("Enter the question first.", "error");
+        qEl.focus();
+        return;
+      }
+      const { jd = "" } = await getSettings();
+      saveBtn.disabled = true;
+      const oldText = saveBtn.textContent;
+      saveBtn.textContent = "Saving…";
+      try {
+        const res = await browser.runtime.sendMessage({
+          type: "SAVE_SAMPLE",
+          question: q,
+          answer,
+          // Omit jd entirely when none is set — the server treats it as optional.
+          ...(jd && jd.trim() ? { jd } : {}),
+        });
+        if (res?.error) throw new Error(res.error);
+        toast(`Saved as sample ${res?.id || ""}`.trim());
+        // Don't close — the user may save then keep editing or batch-add.
+      } catch (e) {
+        toast(e.message || "Save failed.", "error");
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = oldText;
+      }
+    }
 
     // Reflect the current batch size in the footer. The bar shows once ≥1 field
     // is queued; the count and the "Generate all (N)" label stay in sync.
@@ -427,6 +497,7 @@
 
     btn.addEventListener("click", addToBatch);
     genAllLink.addEventListener("click", generateAll);
+    saveBtn.addEventListener("click", saveAnswer);
     $("button.close").addEventListener("click", close);
     qEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {

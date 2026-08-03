@@ -23,6 +23,8 @@ import {
   constants,
   writeFileSync,
   readFileSync,
+  readdirSync,
+  appendFileSync,
   mkdirSync,
   unlinkSync,
   renameSync,
@@ -46,6 +48,94 @@ try {
   mkdirSync(jobsDir, { recursive: true });
 } catch {
   /* workspace may be read-only in odd setups; surface a real error at call time */
+}
+
+// ---- Past-answers store (the "my-answers" skill) ----
+// Saved by the user from the extension card ("Save answer" button). Each save
+// writes one NNN.md entry (question + answer, + JD when one was set) and
+// appends a line to INDEX.md. The agent reads INDEX.md, then opens a matching
+// entry — this is the "scan and get" the design called for, with no DB.
+export const answersDir = join(workspaceDir, "skills", "my-answers");
+export const answersIndexPath = join(answersDir, "INDEX.md");
+
+// Write one entry to the my-answers skill and append its INDEX line.
+// Payload: { question (required), answer (required), jd? (optional) }.
+// Returns { id, path } so the server can log/confirm. Throws InputError on a
+// missing question/answer; ConfigError if the skill dir can't be written.
+export function saveSample({ question, answer, jd } = {}) {
+  const q = (question ?? "").toString().trim();
+  const a = (answer ?? "").toString().trim();
+  if (!q) throw new InputError("No question to save.");
+  if (!a) throw new InputError("No answer to save.");
+
+  if (!existsSync(answersDir)) {
+    try {
+      mkdirSync(answersDir, { recursive: true });
+    } catch {
+      throw new ConfigError(`Could not create answers dir at ${answersDir}`);
+    }
+  }
+
+  const id = nextAnswerId();
+  const entryPath = join(answersDir, `${id}.md`);
+  writeFileSync(entryPath, renderEntry({ id, question: q, answer: a, jd }), "utf8");
+  appendIndexLine(id, q);
+  return { id, path: entryPath };
+}
+
+// Next monotonic 3-digit id by scanning existing NNN.md files. Collisions
+// aren't a real risk: single-writer (the server), and the dir is small.
+function nextAnswerId() {
+  let max = 0;
+  try {
+    for (const name of readdirSync(answersDir)) {
+      const m = name.match(/^(\d{3,})\.md$/i);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+  } catch {
+    /* empty/missing dir -> start at 001 */
+  }
+  return String(max + 1).padStart(3, "0");
+}
+
+function renderEntry({ id, question, answer, jd }) {
+  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const jdBlock =
+    jd && jd.trim()
+      ? `\n## JD\n\n${jd.trim()}\n`
+      : "";
+  return [
+    `# [${id}] ${oneLine(question)}`,
+    ``,
+    `- date: ${date}`,
+    ``,
+    `## Question`,
+    ``,
+    question,
+    ``,
+    `## Answer`,
+    ``,
+    answer,
+    jdBlock,
+  ].join("\n");
+}
+
+// Append one INDEX.md line. One-line summary of the question (truncated)
+// keeps the index scannable; the full question lives in the entry file.
+function appendIndexLine(id, question) {
+  const date = new Date().toISOString().slice(0, 10);
+  const line = `- [${id}] ${oneLine(question, 100)}  ·  ${date}\n`;
+  try {
+    appendFileSync(answersIndexPath, line);
+  } catch {
+    /* INDEX is best-effort; the entry file is the source of truth */
+  }
+}
+
+// Collapse to a single line and truncate for INDEX / entry-title use.
+function oneLine(s, max = 120) {
+  const flat = (s || "").replace(/\s+/g, " ").trim();
+  return flat.length > max ? flat.slice(0, max - 1) + "…" : flat;
 }
 
 // ---- Binary resolution ----
