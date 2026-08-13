@@ -4,5 +4,6 @@ node_modules/
 hammerspoon/run.log
 server.log
 logs/
-workspace/.jobs/
+workspace/
+contexts/
 .zcode/
