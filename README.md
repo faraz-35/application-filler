@@ -6,7 +6,7 @@ activities.
 
 | Hotkey | Profile | Use |
 |---|---|---|
-| `⌘⌥J` | `interview` | Fill job-application / interview fields (blue spinner) |
+| `⌘⌥J` | `interview` | Answer form questions in the profile's voice (blue spinner) |
 | `⌘⌥P` | `parhako` | Write on behalf of the Parhako startup (purple spinner) |
 | `Ctrl+Shift+Y` | (any) | Browser extension: answer one field inline, no clipboard/focus dance |
 
@@ -89,7 +89,7 @@ The answer prints to the terminal and is on the clipboard — paste with `⌘V`.
 For answering questions inside browser forms without the clipboard/focus dance:
 focus a field, press `Ctrl+Shift+Y`, edit the auto-extracted question + an optional
 hint, generate — the answer is written straight into the field (no copy, no `⌘V`).
-Grounded in the **job description** you paste into the toolbar.
+Grounded in a **reference doc** (`jd`) you paste into the toolbar.
 
 The extension talks to the local brain, so keep this running while you use it:
 ```sh
@@ -104,7 +104,7 @@ Add-on* → pick `extension/manifest.json`.
 2. `Ctrl+Shift+Y` → the card opens under it.
 3. Question is auto-filled (editable); add an optional hint, then Generate
    (or Ctrl/⌘+Enter). Regenerate retries, Esc closes.
-4. Toolbar icon → pick the **profile** and paste the **job description** (saved,
+4. Toolbar icon → pick the **profile** and paste a **reference doc** (`jd`) (saved,
    attached to every answer until changed).
 
 **Change the shortcut:** `about:addons` → gear → *Manage Extension Shortcuts*.

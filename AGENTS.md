@@ -16,14 +16,15 @@ two completely different engines to produce it:
 2. **Browser extension** (Firefox MV3) — an **agentic** form-filler. Focus a
    field, press `Ctrl+Shift+Y`, edit the auto-extracted question + optional hint,
    generate. The answer is written into the field via the DOM (no clipboard, no
-   focus juggling). Grounded in a per-application **job description**. This path
+   focus juggling). Grounded in a per-application **reference doc** (the `jd` field — any context that should shape the answer). This path
    shells out to the **opencode CLI**, which runs as a real coding agent over
    `workspace/` — it reads `workspace/AGENTS.md` as the persona and invokes
    `workspace/skills/` for project detail. Slow (10s–minutes) but far more
    capable, and it can fill a whole form in one batch.
 
-Current hotkey profiles:
-- `⌘⌥J` → `interview` — fill job-application / interview fields (blue spinner)
+Hotkey profiles are just folders of context — bind any activity to a hotkey.
+These are the author's (user-supplied, gitignored, not in this repo):
+- `⌘⌥J` → `interview` — answer form questions in the profile's voice (blue spinner)
 - `⌘⌥P` → `parhako` — write on behalf of the Parhako startup (purple spinner)
 
 The extension uses a single `workspace/` regardless of the profile selected in
@@ -102,13 +103,13 @@ src/
                    /answer-batch to agentic.mjs. NOT an adapter over core.mjs.
 
 contexts/<profile>/     HOTKEY persona tree. system.md (required) + any *.md reference.
-                        Loaded by core.mjs. Currently: interview/, parhako/.
+                        Loaded by core.mjs. User-supplied (gitignored) — e.g. interview/, parhako/.
 
-workspace/              EXTENSION persona tree. opencode runs with this as --dir.
+workspace/              EXTENSION persona tree (user-supplied, gitignored — not shipped;
+                        create your own). opencode runs with this as --dir.
   AGENTS.md             the persona, voice, output rules, humanizing rules. Always loaded.
-  cover-letters.md      editorial rules for cover-letter / long-form answers. Always loaded.
+  cover-letters.md      editorial rules for long-form answers. Always loaded.
   skills/<name>/        invokable project knowledge. SKILL.md index + detail files.
-                        parhako-com, parhako-net, parhako-mdcat, smodin, top-dev-space, freelance.
   .jobs/<id>.json       per-batch job files (gitignored). Agent writes answers here.
 
 extension/              Firefox MV3 extension. Thin UI + transport; no brain.
@@ -148,7 +149,7 @@ hammerspoon/run.log      runtime log (gitignored) — PRIMARY DEBUG OUTPUT for t
   `workspace/AGENTS.md` for the extension. Keep prompt/content edits in the
   markdown, not in the source.
 - **`hint` steers answer style per-call; `jd` grounds the answer in a specific
-  job description per-application.** Both are optional on both paths. The
+  reference doc per-application — any grounding context.** Both are optional on both paths. The
   extension also sends a per-field `limit` ({value, unit}) detected from the
   form — it's a HARD CEILING the form enforces, never a target.
 - **Thinking is OFF by default** on the hotkey path (avoids 200–700 hidden
@@ -222,14 +223,14 @@ npm run server          # keep this running while using the extension
 *Load Temporary Add-on* → pick `extension/manifest.json`.
 
 **Use:**
-1. Click a job-application form field (textarea/input/contenteditable).
+1. Click any form field (textarea/input/contenteditable).
 2. `Ctrl+Shift+Y` → the inline card opens under it.
 3. The question is auto-extracted (label/placeholder/aria) and editable; the
    field's word/char limit is detected and passed to the agent. Type an optional
    hint, then Generate (or Ctrl/⌘+Enter). Answer is inserted; Regenerate retries.
    Esc closes.
 4. Click the toolbar icon to set the **profile** (currently advisory — see
-   "Two engines" note) and paste the **job description** (persisted in
+   "Two engines" note) and paste a **reference doc** (`jd` — persisted in
    `storage.local`, attached to every answer until changed).
 
 **Rebind the shortcut:** `about:addons` → gear → *Manage Extension Shortcuts*.
